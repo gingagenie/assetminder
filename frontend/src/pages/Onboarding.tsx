@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
+import { API } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -22,7 +23,7 @@ export default function Onboarding() {
   useEffect(() => {
     if (!jobberAccountId) { navigate("/"); return; }
 
-    fetch(`/api/custom-fields?jobberAccountId=${encodeURIComponent(jobberAccountId)}`)
+    fetch(`${API}/api/custom-fields?jobberAccountId=${encodeURIComponent(jobberAccountId)}`)
       .then((r) => r.json())
       .then((data: { fields: CustomField[] }) => setFields(data.fields))
       .catch(() => setError("Failed to load custom fields."))
@@ -33,7 +34,7 @@ export default function Onboarding() {
     if (!selected || !jobberAccountId) return;
     setSaving(true);
     try {
-      const res = await fetch("/api/orgs/field-mapping", {
+      const res = await fetch(`${API}/api/orgs/field-mapping`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ jobberAccountId, fieldLabel: selected }),

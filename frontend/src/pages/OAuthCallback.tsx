@@ -1,5 +1,6 @@
 import { useEffect, useRef } from "react";
 import { useNavigate } from "react-router-dom";
+import { API } from "@/lib/api";
 
 export default function OAuthCallback() {
   const navigate = useNavigate();
@@ -27,7 +28,7 @@ export default function OAuthCallback() {
 
         // Check whether field mapping is already configured
         const res = await fetch(
-          `/api/orgs/field-mapping?jobberAccountId=${encodeURIComponent(jobberAccountId)}`
+          `${API}/api/orgs/field-mapping?jobberAccountId=${encodeURIComponent(jobberAccountId)}`
         );
         const data = (await res.json()) as { assetIdentifierField: string | null };
 

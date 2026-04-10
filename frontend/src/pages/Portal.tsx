@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { useParams } from "react-router-dom";
+import { API } from "@/lib/api";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
 
@@ -46,7 +47,7 @@ export default function Portal() {
   const [notFound, setNotFound] = useState(false);
 
   useEffect(() => {
-    fetch(`/api/portal/${token}`)
+    fetch(`${API}/api/portal/${token}`)
       .then((r) => {
         if (r.status === 404) { setNotFound(true); return null; }
         return r.json();

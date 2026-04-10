@@ -1,4 +1,5 @@
 import { Button } from "@/components/ui/button";
+import { API } from "@/lib/api";
 
 export default function Landing() {
   return (
@@ -10,7 +11,7 @@ export default function Landing() {
         </p>
       </div>
       <Button size="lg" asChild>
-        <a href="/auth/jobber/connect">Connect to Jobber</a>
+        <a href={`${API}/auth/jobber/connect`}>Connect to Jobber</a>
       </Button>
     </div>
   );

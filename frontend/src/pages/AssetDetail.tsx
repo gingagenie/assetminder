@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useParams, useNavigate, Link } from "react-router-dom";
+import { API } from "@/lib/api";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -75,7 +76,7 @@ export default function AssetDetail() {
     if (ran.current) return;
     ran.current = true;
 
-    fetch(`/api/assets/${assetId}/jobs`)
+    fetch(`${API}/api/assets/${assetId}/jobs`)
       .then((r) => r.json())
       .then((data: { asset: AssetDetail; jobs: JobEntry[] }) => {
         setAsset(data.asset);
@@ -96,21 +97,21 @@ export default function AssetDetail() {
 
     try {
       // Save interval
-      await fetch(`/api/assets/${asset.id}/interval`, {
+      await fetch(`${API}/api/assets/${asset.id}/interval`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ intervalDays: days }),
       });
 
       // Recalculate due dates
-      await fetch("/api/calculate-due-dates", {
+      await fetch(`${API}/api/calculate-due-dates`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ jobberAccountId }),
       });
 
       // Refresh asset data
-      const res = await fetch(`/api/assets/${asset.id}/jobs`);
+      const res = await fetch(`${API}/api/assets/${asset.id}/jobs`);
       const data = (await res.json()) as { asset: AssetDetail; jobs: JobEntry[] };
       setAsset(data.asset);
       setJobsList(data.jobs);

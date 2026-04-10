@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { useNavigate, Link } from "react-router-dom";
+import { API } from "@/lib/api";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -113,9 +114,9 @@ export default function Dashboard() {
     if (!jobberAccountId) { navigate("/"); return; }
 
     Promise.all([
-      fetch(`/api/me?jobberAccountId=${encodeURIComponent(jobberAccountId)}`).then((r) => r.json()),
-      fetch(`/api/assets?jobberAccountId=${encodeURIComponent(jobberAccountId)}`).then((r) => r.json()),
-      fetch(`/api/clients?jobberAccountId=${encodeURIComponent(jobberAccountId)}`).then((r) => r.json()),
+      fetch(`${API}/api/me?jobberAccountId=${encodeURIComponent(jobberAccountId)}`).then((r) => r.json()),
+      fetch(`${API}/api/assets?jobberAccountId=${encodeURIComponent(jobberAccountId)}`).then((r) => r.json()),
+      fetch(`${API}/api/clients?jobberAccountId=${encodeURIComponent(jobberAccountId)}`).then((r) => r.json()),
     ])
       .then(([me, assetData, clientData]: [
         { accountName: string },
@@ -133,7 +134,7 @@ export default function Dashboard() {
   async function handleSharePortal(clientId: string) {
     setGeneratingFor(clientId);
     try {
-      const res = await fetch(`/api/clients/${clientId}/portal-link`, { method: "POST" });
+      const res = await fetch(`${API}/api/clients/${clientId}/portal-link`, { method: "POST" });
       const data = (await res.json()) as { portalUrl: string };
       setPortalUrl(data.portalUrl);
     } catch {
