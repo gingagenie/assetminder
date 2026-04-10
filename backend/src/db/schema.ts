@@ -54,6 +54,8 @@ export const assets = pgTable("assets", {
   displayName: text("display_name").notNull(),
   lastServicedAt: timestamp("last_serviced_at", { withTimezone: true }),
   jobCount: integer("job_count").notNull().default(0),
+  serviceIntervalDays: integer("service_interval_days"),
+  nextDueAt: timestamp("next_due_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 }, (t) => [
   unique("assets_org_identifier_unique").on(t.orgId, t.identifier),
