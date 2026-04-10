@@ -21,8 +21,9 @@ export async function getValidToken(jobberAccountId: string): Promise<string> {
     throw new Error(`No Jobber org found for account ID: ${jobberAccountId}`);
   }
 
+  const expiresAt = new Date(org.expiresAt); // coerce string→Date when pooler returns a string
   const needsRefresh =
-    org.expiresAt.getTime() - Date.now() < REFRESH_THRESHOLD_MS;
+    expiresAt.getTime() - Date.now() < REFRESH_THRESHOLD_MS;
 
   if (!needsRefresh) {
     return org.accessToken;
@@ -51,10 +52,10 @@ async function refreshToken(org: JobberOrg): Promise<string> {
   const tokens = (await res.json()) as {
     access_token: string;
     refresh_token: string;
-    expires_in: number;
+    expires_in?: number;
   };
 
-  const expiresAt = new Date(Date.now() + tokens.expires_in * 1000);
+  const expiresAt = new Date(Date.now() + (tokens.expires_in ?? 3600) * 1000);
 
   await db
     .update(jobberOrgs)
