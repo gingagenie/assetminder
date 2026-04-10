@@ -1,9 +1,10 @@
 import { Router, Request, Response } from "express";
-import { eq } from "drizzle-orm";
+import { eq, and } from "drizzle-orm";
 import { getValidToken } from "../lib/jobberToken";
 import { syncOrg } from "../lib/sync";
+import { groupAssets } from "../lib/groupAssets";
 import { db } from "../db/client";
-import { jobberOrgs } from "../db/schema";
+import { jobberOrgs, assets } from "../db/schema";
 
 const router = Router();
 
@@ -165,6 +166,62 @@ router.get("/orgs/field-mapping", async (req: Request, res: Response) => {
   try {
     const org = await requireOrg(jobberAccountId);
     res.json({ assetIdentifierField: org.assetIdentifierField ?? null });
+  } catch (err) {
+    res.status(500).json({ error: String(err) });
+  }
+});
+
+// ---------- POST /api/group-assets ----------
+
+router.post("/group-assets", async (req: Request, res: Response) => {
+  const { jobberAccountId } = req.body as { jobberAccountId?: string };
+
+  if (!jobberAccountId) {
+    res.status(400).json({ error: "Missing required body param: jobberAccountId" });
+    return;
+  }
+
+  try {
+    const result = await groupAssets(jobberAccountId);
+    res.json({ assets: result });
+  } catch (err) {
+    console.error("[group-assets] error:", err);
+    res.status(500).json({ error: String(err) });
+  }
+});
+
+// ---------- GET /api/assets ----------
+
+router.get("/assets", async (req: Request, res: Response) => {
+  const { jobberAccountId, clientId } = req.query;
+
+  if (!jobberAccountId || typeof jobberAccountId !== "string") {
+    res.status(400).json({ error: "Missing required query param: jobberAccountId" });
+    return;
+  }
+
+  try {
+    const org = await requireOrg(jobberAccountId);
+
+    const rows = await db
+      .select()
+      .from(assets)
+      .where(
+        clientId && typeof clientId === "string"
+          ? and(eq(assets.orgId, org.id), eq(assets.jobberClientId, clientId))
+          : eq(assets.orgId, org.id)
+      );
+
+    res.json({
+      assets: rows.map((a) => ({
+        id: a.id,
+        identifier: a.identifier,
+        displayName: a.displayName,
+        jobberClientId: a.jobberClientId,
+        lastServicedAt: a.lastServicedAt ?? null,
+        jobCount: a.jobCount,
+      })),
+    });
   } catch (err) {
     res.status(500).json({ error: String(err) });
   }

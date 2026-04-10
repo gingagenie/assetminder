@@ -46,6 +46,19 @@ export const jobCustomFields = pgTable("job_custom_fields", {
   unique("job_custom_fields_job_label_unique").on(t.jobId, t.fieldLabel),
 ]);
 
+export const assets = pgTable("assets", {
+  id: text("id").primaryKey(),
+  orgId: text("org_id").notNull(),
+  jobberClientId: text("jobber_client_id"),
+  identifier: text("identifier").notNull(),
+  displayName: text("display_name").notNull(),
+  lastServicedAt: timestamp("last_serviced_at", { withTimezone: true }),
+  jobCount: integer("job_count").notNull().default(0),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [
+  unique("assets_org_identifier_unique").on(t.orgId, t.identifier),
+]);
+
 export type JobberOrg = typeof jobberOrgs.$inferSelect;
 export type NewJobberOrg = typeof jobberOrgs.$inferInsert;
 export type Client = typeof clients.$inferSelect;
