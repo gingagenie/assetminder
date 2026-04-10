@@ -1,5 +1,6 @@
 import { Router, Request, Response } from "express";
 import { eq, and, inArray, desc } from "drizzle-orm";
+import crypto from "crypto";
 import { getValidToken } from "../lib/jobberToken";
 import { syncOrg } from "../lib/sync";
 import { groupAssets } from "../lib/groupAssets";
@@ -389,6 +390,102 @@ router.get("/assets", async (req: Request, res: Response) => {
           lastServicedAt: a.lastServicedAt ?? null,
           nextDueAt: nextDueAt?.toISOString() ?? null,
           serviceIntervalDays: intervalDays,
+          jobCount: a.jobCount,
+          status,
+        };
+      }),
+    });
+  } catch (err) {
+    res.status(500).json({ error: String(err) });
+  }
+});
+
+// ---------- GET /api/clients ----------
+
+router.get("/clients", async (req: Request, res: Response) => {
+  const { jobberAccountId } = req.query;
+
+  if (!jobberAccountId || typeof jobberAccountId !== "string") {
+    res.status(400).json({ error: "Missing required query param: jobberAccountId" });
+    return;
+  }
+
+  try {
+    const org = await requireOrg(jobberAccountId);
+    const rows = await db
+      .select({ id: clients.id, name: clients.name, companyName: clients.companyName, email: clients.email, jobberClientId: clients.jobberClientId, portalToken: clients.portalToken })
+      .from(clients)
+      .where(eq(clients.orgId, org.id));
+
+    res.json({ clients: rows });
+  } catch (err) {
+    res.status(500).json({ error: String(err) });
+  }
+});
+
+// ---------- POST /api/clients/:clientId/portal-link ----------
+
+router.post("/clients/:clientId/portal-link", async (req: Request, res: Response) => {
+  const clientId = String(req.params.clientId);
+  const frontendBase = process.env.FRONTEND_URL ?? "http://localhost:3000";
+
+  try {
+    const [existing] = await db.select().from(clients).where(eq(clients.id, clientId)).limit(1);
+    if (!existing) { res.status(404).json({ error: "Client not found" }); return; }
+
+    const token = crypto.randomUUID();
+
+    await db.update(clients).set({ portalToken: token }).where(eq(clients.id, clientId));
+
+    res.json({ portalUrl: `${frontendBase}/portal/${token}` });
+  } catch (err) {
+    res.status(500).json({ error: String(err) });
+  }
+});
+
+// ---------- GET /api/portal/:token ----------
+
+router.get("/portal/:token", async (req: Request, res: Response) => {
+  const token = String(req.params.token);
+
+  try {
+    const [client] = await db
+      .select()
+      .from(clients)
+      .where(eq(clients.portalToken, token))
+      .limit(1);
+
+    if (!client) { res.status(404).json({ error: "Portal not found" }); return; }
+
+    const orgAssets = await db
+      .select()
+      .from(assets)
+      .where(and(eq(assets.orgId, client.orgId), eq(assets.jobberClientId, client.jobberClientId)));
+
+    const MS_PER_DAY = 24 * 60 * 60 * 1000;
+    const AMBER_DAYS = 30;
+
+    res.json({
+      client: {
+        name: client.companyName ?? client.name,
+        email: client.email,
+      },
+      assets: orgAssets.map((a) => {
+        const nextDueAt = a.nextDueAt ? new Date(a.nextDueAt) : null;
+        const intervalDays = a.serviceIntervalDays ?? null;
+        let status: "ok" | "amber" | "overdue" | "unscheduled" = "unscheduled";
+        if (intervalDays && nextDueAt) {
+          const days = (nextDueAt.getTime() - Date.now()) / MS_PER_DAY;
+          if (days < 0) status = "overdue";
+          else if (days <= AMBER_DAYS) status = "amber";
+          else status = "ok";
+        }
+        return {
+          id: a.id,
+          identifier: a.identifier,
+          displayName: a.displayName,
+          lastServicedAt: a.lastServicedAt ?? null,
+          nextDueAt: nextDueAt?.toISOString() ?? null,
           jobCount: a.jobCount,
           status,
         };

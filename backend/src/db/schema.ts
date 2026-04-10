@@ -18,6 +18,7 @@ export const clients = pgTable("clients", {
   name: text("name").notNull(),
   companyName: text("company_name"),
   email: text("email"),
+  portalToken: text("portal_token").unique(),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 }, (t) => [
   unique("clients_org_jobber_client_unique").on(t.orgId, t.jobberClientId),

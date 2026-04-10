@@ -4,6 +4,7 @@ import OAuthCallback from "@/pages/OAuthCallback";
 import Onboarding from "@/pages/Onboarding";
 import Dashboard from "@/pages/Dashboard";
 import AssetDetail from "@/pages/AssetDetail";
+import Portal from "@/pages/Portal";
 
 function RequireAuth({ children }: { children: React.ReactNode }) {
   const id = localStorage.getItem("jobberAccountId");
@@ -19,6 +20,7 @@ export default function App() {
         <Route path="/onboarding" element={<RequireAuth><Onboarding /></RequireAuth>} />
         <Route path="/dashboard" element={<RequireAuth><Dashboard /></RequireAuth>} />
         <Route path="/assets/:assetId" element={<RequireAuth><AssetDetail /></RequireAuth>} />
+        <Route path="/portal/:token" element={<Portal />} />
       </Routes>
     </BrowserRouter>
   );
