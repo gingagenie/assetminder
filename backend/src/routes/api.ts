@@ -1,11 +1,11 @@
 import { Router, Request, Response } from "express";
-import { eq, and } from "drizzle-orm";
+import { eq, and, inArray, desc } from "drizzle-orm";
 import { getValidToken } from "../lib/jobberToken";
 import { syncOrg } from "../lib/sync";
 import { groupAssets } from "../lib/groupAssets";
 import { calculateDueDates } from "../lib/calculateDueDates";
 import { db } from "../db/client";
-import { jobberOrgs, assets } from "../db/schema";
+import { jobberOrgs, assets, jobs, jobCustomFields, clients } from "../db/schema";
 
 const router = Router();
 
@@ -235,6 +235,110 @@ router.post("/group-assets", async (req: Request, res: Response) => {
     res.json({ assets: result });
   } catch (err) {
     console.error("[group-assets] error:", err);
+    res.status(500).json({ error: String(err) });
+  }
+});
+
+// ---------- GET /api/assets/:assetId/jobs ----------
+
+router.get("/assets/:assetId/jobs", async (req: Request, res: Response) => {
+  const assetId = String(req.params.assetId);
+
+  try {
+    // Load asset + org
+    const [asset] = await db.select().from(assets).where(eq(assets.id, assetId)).limit(1);
+    if (!asset) { res.status(404).json({ error: "Asset not found" }); return; }
+
+    const [org] = await db.select().from(jobberOrgs).where(eq(jobberOrgs.id, asset.orgId)).limit(1);
+    if (!org) { res.status(404).json({ error: "Org not found" }); return; }
+
+    const fieldLabel = org.assetIdentifierField;
+    if (!fieldLabel) { res.status(400).json({ error: "No asset identifier field mapped" }); return; }
+
+    // Client name
+    let clientName: string | null = null;
+    if (asset.jobberClientId) {
+      const [client] = await db
+        .select({ name: clients.name, companyName: clients.companyName })
+        .from(clients)
+        .where(and(eq(clients.orgId, asset.orgId), eq(clients.jobberClientId, asset.jobberClientId)))
+        .limit(1);
+      clientName = client?.companyName ?? client?.name ?? null;
+    }
+
+    // Jobs linked to this asset via the identifier custom field
+    const jobRows = await db
+      .select({
+        id: jobs.id,
+        jobberJobId: jobs.jobberJobId,
+        jobNumber: jobs.jobNumber,
+        title: jobs.title,
+        completedAt: jobs.completedAt,
+        jobStatus: jobs.jobStatus,
+      })
+      .from(jobs)
+      .innerJoin(
+        jobCustomFields,
+        and(
+          eq(jobCustomFields.jobId, jobs.id),
+          eq(jobCustomFields.fieldLabel, fieldLabel),
+          eq(jobCustomFields.fieldValue, asset.identifier)
+        )
+      )
+      .where(eq(jobs.orgId, asset.orgId))
+      .orderBy(desc(jobs.completedAt));
+
+    // All custom fields for those jobs
+    const jobIds = jobRows.map((j) => j.id);
+    const allFields =
+      jobIds.length > 0
+        ? await db.select().from(jobCustomFields).where(inArray(jobCustomFields.jobId, jobIds))
+        : [];
+
+    const fieldsByJob = new Map<string, { label: string; value: string | null }[]>();
+    for (const f of allFields) {
+      if (!fieldsByJob.has(f.jobId)) fieldsByJob.set(f.jobId, []);
+      fieldsByJob.get(f.jobId)!.push({ label: f.fieldLabel, value: f.fieldValue });
+    }
+
+    // Status
+    const MS_PER_DAY = 24 * 60 * 60 * 1000;
+    const AMBER_DAYS = 30;
+    const nextDueAt = asset.nextDueAt ? new Date(asset.nextDueAt) : null;
+    const intervalDays = asset.serviceIntervalDays ?? null;
+    let status: "ok" | "amber" | "overdue" | "unscheduled" = "unscheduled";
+    if (intervalDays && nextDueAt) {
+      const days = (nextDueAt.getTime() - Date.now()) / MS_PER_DAY;
+      if (days < 0) status = "overdue";
+      else if (days <= AMBER_DAYS) status = "amber";
+      else status = "ok";
+    }
+
+    res.json({
+      asset: {
+        id: asset.id,
+        identifier: asset.identifier,
+        displayName: asset.displayName,
+        jobberClientId: asset.jobberClientId,
+        clientName,
+        lastServicedAt: asset.lastServicedAt ?? null,
+        nextDueAt: nextDueAt?.toISOString() ?? null,
+        serviceIntervalDays: intervalDays,
+        jobCount: asset.jobCount,
+        status,
+      },
+      jobs: jobRows.map((j) => ({
+        id: j.id,
+        jobberJobId: j.jobberJobId,
+        jobNumber: j.jobNumber,
+        title: j.title,
+        completedAt: j.completedAt ?? null,
+        jobStatus: j.jobStatus,
+        customFields: fieldsByJob.get(j.id) ?? [],
+      })),
+    });
+  } catch (err) {
+    console.error("[asset-jobs] error:", err);
     res.status(500).json({ error: String(err) });
   }
 });

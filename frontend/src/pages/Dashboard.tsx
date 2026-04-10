@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, Link } from "react-router-dom";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
 
@@ -98,7 +98,11 @@ export default function Dashboard() {
             ) : (
               <div className="divide-y">
                 {assets.map((asset) => (
-                  <div key={asset.id} className="flex items-center justify-between py-4 gap-4">
+                  <Link
+                    key={asset.id}
+                    to={`/assets/${asset.id}`}
+                    className="flex items-center justify-between py-4 gap-4 hover:bg-muted/50 -mx-6 px-6 transition-colors"
+                  >
                     <div className="min-w-0 flex-1">
                       <p className="font-medium truncate">{asset.displayName}</p>
                       <p className="text-sm text-muted-foreground">{asset.jobCount} job{asset.jobCount !== 1 ? "s" : ""}</p>
@@ -110,7 +114,7 @@ export default function Dashboard() {
                       )}
                     </div>
                     <StatusBadge status={asset.status} />
-                  </div>
+                  </Link>
                 ))}
               </div>
             )}
