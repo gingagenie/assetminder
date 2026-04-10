@@ -128,7 +128,8 @@ router.get("/callback", async (req: Request, res: Response) => {
     });
   }
 
-  res.json({ ok: true, jobberAccountId });
+  const frontendBase = process.env.FRONTEND_URL ?? "http://localhost:3000";
+  res.redirect(`${frontendBase}/oauth/callback?jobberAccountId=${encodeURIComponent(jobberAccountId)}`);
 });
 
 export default router;
