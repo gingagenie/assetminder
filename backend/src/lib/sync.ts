@@ -65,7 +65,7 @@ interface JobberLineItem {
   name: string;
   quantity: number;
   unitPrice: number;
-  total: number;
+  totalCost: number;
 }
 
 interface JobberJobNode {
@@ -77,7 +77,6 @@ interface JobberJobNode {
   completedAt: string | null;
   instructions: string | null;
   client: { id: string } | null;
-  assignedTo: { nodes: { name: string }[] } | null;
   lineItems: { nodes: JobberLineItem[] };
   customFields: JobberCustomField[];
 }
@@ -186,11 +185,8 @@ const JOBS_QUERY = `
         client {
           id
         }
-        assignedTo {
-          nodes { name }
-        }
         lineItems {
-          nodes { name quantity unitPrice total }
+          nodes { name quantity unitPrice totalCost }
         }
         customFields {
           ... on CustomFieldText      { label valueText }
@@ -226,8 +222,6 @@ async function syncJobs(accessToken: string, orgId: string): Promise<{ jobsCount
 
     for (const j of nodes) {
       console.log(`[sync] job raw:`, JSON.stringify({ id: j.id, createdAt: j.createdAt, completedAt: j.completedAt, jobStatus: j.jobStatus }));
-      const technicianName = j.assignedTo?.nodes?.[0]?.name ?? null;
-
       const jobRow = {
         id: crypto.randomUUID(),
         orgId,
@@ -236,7 +230,7 @@ async function syncJobs(accessToken: string, orgId: string): Promise<{ jobsCount
         title: j.title ?? null,
         jobNumber: j.jobNumber ?? null,
         jobStatus: j.jobStatus,
-        assignedTo: technicianName,
+        assignedTo: null,
         instructions: j.instructions ?? null,
         createdAt: safeDate(j.createdAt) ?? new Date(),
         completedAt: safeDate(j.completedAt),
@@ -270,7 +264,7 @@ async function syncJobs(accessToken: string, orgId: string): Promise<{ jobsCount
           name: li.name,
           quantity: String(li.quantity),
           unitPrice: String(li.unitPrice),
-          total: String(li.total),
+          total: String(li.totalCost),
         });
       }
 
