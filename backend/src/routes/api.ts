@@ -7,7 +7,7 @@ import { syncOrg } from "../lib/sync";
 import { groupAssets } from "../lib/groupAssets";
 import { calculateDueDates } from "../lib/calculateDueDates";
 import { db } from "../db/client";
-import { jobberOrgs, assets, jobs, jobCustomFields, jobLineItems, clients } from "../db/schema";
+import { jobberOrgs, assets, jobs, jobCustomFields, clients } from "../db/schema";
 
 const router = Router();
 
@@ -540,7 +540,7 @@ router.get("/jobs/:jobId/pdf", async (req: Request, res: Response) => {
       if (client) clientName = client.companyName ?? client.name;
     }
 
-    // Custom fields + asset identifier
+    // Custom fields — separate asset identifier from display fields
     const customFields = await db.select().from(jobCustomFields).where(eq(jobCustomFields.jobId, jobId));
     const assetField = org.assetIdentifierField;
     const assetIdentifier = assetField
@@ -548,18 +548,12 @@ router.get("/jobs/:jobId/pdf", async (req: Request, res: Response) => {
       : "—";
     const displayFields = customFields.filter((f) => f.fieldLabel !== assetField);
 
-    // Load enriched data from DB
-    const lineItemRows = await db.select().from(jobLineItems).where(eq(jobLineItems.jobId, jobId));
-    const lineItems = lineItemRows.map((li) => ({
-      name: li.name,
-      quantity: parseFloat(li.quantity),
-      unitPrice: parseFloat(li.unitPrice),
-      total: parseFloat(li.total),
-    }));
-    const technicianName = job.assignedTo ?? null;
-    const instructions = job.instructions ?? null;
+    const completedStr = job.completedAt
+      ? new Date(job.completedAt).toLocaleDateString("en-GB", { dateStyle: "medium" })
+      : "—";
+    const statusStr = job.jobStatus.toLowerCase().replace(/_/g, " ");
 
-    // Build PDF
+    // ── Build PDF ────────────────────────────────────────────────
     const doc = new PDFDocument({ margin: 50, size: "A4" });
     const L = 50;
     const R = (doc.page.width as number) - 50;
@@ -575,14 +569,14 @@ router.get("/jobs/:jobId/pdf", async (req: Request, res: Response) => {
     );
     doc.pipe(res);
 
-    // ── Header bar ──────────────────────────────────────────────
+    // Header bar
     doc.rect(0, 0, doc.page.width as number, 78).fill(navy);
     doc.fillColor("white").fontSize(22).font("Helvetica-Bold").text("Service Report", L, 20);
     doc.fillColor("#94a3b8").fontSize(10).font("Helvetica").text("AssetMinder", L, 48);
 
     let y = 98;
 
-    // ── Asset / Client row ───────────────────────────────────────
+    // Asset / Client
     doc.fillColor(slate).fontSize(8).font("Helvetica")
       .text("ASSET", L, y, { width: W / 2 });
     doc.text("CLIENT", L + W / 2, y, { width: W / 2 });
@@ -590,21 +584,16 @@ router.get("/jobs/:jobId/pdf", async (req: Request, res: Response) => {
     doc.fillColor(navy).fontSize(15).font("Helvetica-Bold")
       .text(assetIdentifier, L, y, { width: W / 2 });
     doc.text(clientName, L + W / 2, y, { width: W / 2 });
-    y += 32;
+    y += 36;
 
-    // ── Divider ──────────────────────────────────────────────────
+    // Divider
     doc.moveTo(L, y).lineTo(R, y).lineWidth(0.5).strokeColor(rule).stroke();
     y += 16;
 
-    // ── Job details row ──────────────────────────────────────────
-    const completedStr = job.completedAt
-      ? new Date(job.completedAt).toLocaleDateString(undefined, { dateStyle: "medium" })
-      : "—";
-    const statusStr = job.jobStatus.toLowerCase().replace(/_/g, " ");
+    // Job details — 3 columns: number, date, status
     const details = [
       { label: "JOB NUMBER", value: job.jobNumber ? `#${job.jobNumber}` : "—" },
-      { label: "DATE", value: completedStr },
-      { label: "TECHNICIAN", value: technicianName ?? "—" },
+      { label: "DATE COMPLETED", value: completedStr },
       { label: "STATUS", value: statusStr },
     ];
     const colW = W / details.length;
@@ -615,76 +604,46 @@ router.get("/jobs/:jobId/pdf", async (req: Request, res: Response) => {
     });
     y += 46;
 
-    // ── Notes ────────────────────────────────────────────────────
-    if (instructions) {
+    // Job title (if present)
+    if (job.title) {
       doc.moveTo(L, y).lineTo(R, y).lineWidth(0.5).strokeColor(rule).stroke();
       y += 16;
-      doc.fillColor(slate).fontSize(8).font("Helvetica").text("NOTES", L, y);
+      doc.fillColor(slate).fontSize(8).font("Helvetica").text("JOB TITLE", L, y);
       y += 13;
-      doc.fillColor(navy).fontSize(10).font("Helvetica").text(instructions, L, y, { width: W });
-      y += doc.heightOfString(instructions, { width: W }) + 16;
+      doc.fillColor(navy).fontSize(12).font("Helvetica-Bold").text(job.title, L, y, { width: W });
+      y += 24;
     }
 
-    // ── Custom fields ────────────────────────────────────────────
+    // Instructions / notes
+    if (job.instructions) {
+      doc.moveTo(L, y).lineTo(R, y).lineWidth(0.5).strokeColor(rule).stroke();
+      y += 16;
+      doc.fillColor(slate).fontSize(8).font("Helvetica").text("WORK NOTES", L, y);
+      y += 13;
+      doc.fillColor(navy).fontSize(10).font("Helvetica").text(job.instructions, L, y, { width: W });
+      y += doc.heightOfString(job.instructions, { width: W }) + 16;
+    }
+
+    // Custom fields
     if (displayFields.length > 0) {
       doc.moveTo(L, y).lineTo(R, y).lineWidth(0.5).strokeColor(rule).stroke();
       y += 16;
-      doc.fillColor(slate).fontSize(8).font("Helvetica").text("CUSTOM FIELDS", L, y);
+      doc.fillColor(slate).fontSize(8).font("Helvetica").text("JOB DETAILS", L, y);
       y += 14;
       displayFields.forEach((f) => {
-        doc.fillColor(slate).fontSize(9).font("Helvetica").text(`${f.fieldLabel}:`, L, y, { width: 140, continued: false });
-        doc.fillColor(navy).fontSize(9).font("Helvetica-Bold").text(f.fieldValue ?? "—", L + 145, y, { width: W - 145 });
-        y += 16;
+        doc.fillColor(slate).fontSize(9).font("Helvetica")
+          .text(`${f.fieldLabel}:`, L, y, { width: 160 });
+        doc.fillColor(navy).fontSize(9).font("Helvetica-Bold")
+          .text(f.fieldValue ?? "—", L + 165, y, { width: W - 165 });
+        y += 18;
       });
-      y += 4;
     }
 
-    // ── Line items table ─────────────────────────────────────────
-    if (lineItems.length > 0) {
-      doc.moveTo(L, y).lineTo(R, y).lineWidth(0.5).strokeColor(rule).stroke();
-      y += 16;
-      doc.fillColor(slate).fontSize(8).font("Helvetica").text("LINE ITEMS", L, y);
-      y += 14;
-
-      // Table header
-      const cols = { desc: L, qty: L + W * 0.55, price: L + W * 0.7, total: L + W * 0.85 };
-      doc.rect(L, y, W, 22).fill("#f1f5f9");
-      doc.fillColor(slate).fontSize(8).font("Helvetica-Bold")
-        .text("DESCRIPTION", cols.desc + 6, y + 7, { width: W * 0.5 });
-      doc.text("QTY", cols.qty, y + 7, { width: W * 0.12, align: "right" });
-      doc.text("UNIT PRICE", cols.price, y + 7, { width: W * 0.14, align: "right" });
-      doc.text("TOTAL", cols.total, y + 7, { width: W * 0.14, align: "right" });
-      y += 22;
-
-      lineItems.forEach((li, idx) => {
-        if (idx % 2 === 1) doc.rect(L, y, W, 20).fill("#f8fafc");
-        doc.fillColor(navy).fontSize(9).font("Helvetica")
-          .text(li.name, cols.desc + 6, y + 5, { width: W * 0.5 });
-        doc.text(String(li.quantity), cols.qty, y + 5, { width: W * 0.12, align: "right" });
-        doc.text(`$${li.unitPrice.toFixed(2)}`, cols.price, y + 5, { width: W * 0.14, align: "right" });
-        doc.font("Helvetica-Bold")
-          .text(`$${li.total.toFixed(2)}`, cols.total, y + 5, { width: W * 0.14, align: "right" });
-        y += 20;
-      });
-
-      // Total row
-      const grandTotal = lineItems.reduce((sum, li) => sum + li.total, 0);
-      doc.rect(L, y, W, 24).fill(navy);
-      doc.fillColor("white").fontSize(10).font("Helvetica-Bold")
-        .text("TOTAL", cols.desc + 6, y + 7, { width: W * 0.8 });
-      doc.text(`$${grandTotal.toFixed(2)}`, cols.total, y + 7, { width: W * 0.14, align: "right" });
-      y += 32;
-    }
-
-    // ── Footer ───────────────────────────────────────────────────
+    // Footer
     const pageH = doc.page.height as number;
     doc.moveTo(L, pageH - 50).lineTo(R, pageH - 50).lineWidth(0.5).strokeColor(rule).stroke();
     doc.fillColor(slate).fontSize(8).font("Helvetica")
-      .text(
-        "Generated by AssetMinder · assetminder-frontend.onrender.com",
-        L, pageH - 36,
-        { width: W, align: "center" }
-      );
+      .text("Generated by AssetMinder · assetminder-frontend.onrender.com", L, pageH - 36, { width: W, align: "center" });
 
     doc.end();
   } catch (err) {
