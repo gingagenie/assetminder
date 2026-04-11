@@ -18,6 +18,13 @@ interface AssetDetail {
   status: "ok" | "amber" | "overdue" | "unscheduled";
 }
 
+interface LineItem {
+  name: string;
+  quantity: number;
+  unitPrice: number;
+  total: number;
+}
+
 interface JobEntry {
   id: string;
   jobNumber: number | null;
@@ -25,6 +32,9 @@ interface JobEntry {
   completedAt: string | null;
   jobStatus: string;
   customFields: { label: string; value: string | null }[];
+  lineItems: LineItem[];
+  technicianName: string | null;
+  instructions: string | null;
 }
 
 // ---------- Helpers ----------
@@ -57,6 +67,15 @@ export default function AssetDetail() {
   const [savingInterval, setSavingInterval] = useState(false);
   const [intervalSaved, setIntervalSaved] = useState(false);
   const [intervalError, setIntervalError] = useState<string | null>(null);
+  const [expandedJobs, setExpandedJobs] = useState<Set<string>>(new Set());
+
+  function toggleJob(id: string) {
+    setExpandedJobs((prev) => {
+      const next = new Set(prev);
+      next.has(id) ? next.delete(id) : next.add(id);
+      return next;
+    });
+  }
 
   const ran = useRef(false);
 
@@ -218,36 +237,112 @@ export default function AssetDetail() {
             <p className="text-slate-400 text-sm">No jobs found for this asset.</p>
           ) : (
             <div className="space-y-3">
-              {jobsList.map((job) => (
-                <div key={job.id} className="bg-white rounded-xl shadow-sm border border-slate-200 px-6 py-5">
-                  <div className="flex items-start justify-between gap-4">
-                    <div className="space-y-1 min-w-0">
-                      <div className="flex items-baseline gap-2">
-                        <p className="font-bold text-slate-800">
-                          {job.title ?? `Job #${job.jobNumber ?? "—"}`}
-                        </p>
-                        {job.jobNumber && job.title && (
-                          <span className="text-xs text-slate-400 font-normal">#{job.jobNumber}</span>
+              {jobsList.map((job) => {
+                const isExpanded = expandedJobs.has(job.id);
+                return (
+                  <div key={job.id} className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
+                    {/* Collapsed header — always visible, click to expand */}
+                    <button
+                      onClick={() => toggleJob(job.id)}
+                      className="w-full text-left px-6 py-5 hover:bg-slate-50 transition-colors"
+                    >
+                      <div className="flex items-start justify-between gap-4">
+                        <div className="space-y-1 min-w-0">
+                          <div className="flex items-baseline gap-2">
+                            <p className="font-bold text-slate-800">
+                              {job.title ?? `Job #${job.jobNumber ?? "—"}`}
+                            </p>
+                            {job.jobNumber && job.title && (
+                              <span className="text-xs text-slate-400 font-normal">#{job.jobNumber}</span>
+                            )}
+                          </div>
+                          <p className="text-xs text-slate-400 capitalize">
+                            {job.jobStatus.toLowerCase().replace(/_/g, " ")}
+                            {job.technicianName && (
+                              <span className="ml-2 text-slate-300">·</span>
+                            )}
+                            {job.technicianName && (
+                              <span className="ml-2">{job.technicianName}</span>
+                            )}
+                          </p>
+                        </div>
+                        <div className="flex items-center gap-3 shrink-0">
+                          <p className="text-sm text-slate-400">{formatDate(job.completedAt)}</p>
+                          <svg
+                            className={`h-4 w-4 text-slate-400 transition-transform ${isExpanded ? "rotate-180" : ""}`}
+                            fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}
+                          >
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+                          </svg>
+                        </div>
+                      </div>
+                    </button>
+
+                    {/* Expanded detail */}
+                    {isExpanded && (
+                      <div className="border-t border-slate-100 px-6 py-5 space-y-5">
+
+                        {/* Instructions */}
+                        {job.instructions && (
+                          <div>
+                            <p className="text-xs font-semibold uppercase tracking-widest text-slate-400 mb-2">Notes</p>
+                            <p className="text-sm text-slate-600 leading-relaxed">{job.instructions}</p>
+                          </div>
+                        )}
+
+                        {/* Line items */}
+                        {job.lineItems.length > 0 && (
+                          <div>
+                            <p className="text-xs font-semibold uppercase tracking-widest text-slate-400 mb-3">Line Items</p>
+                            <div className="rounded-lg border border-slate-100 overflow-hidden">
+                              <table className="w-full text-sm">
+                                <thead>
+                                  <tr className="bg-slate-50 text-left">
+                                    <th className="px-4 py-2.5 text-xs font-semibold text-slate-500 w-full">Description</th>
+                                    <th className="px-4 py-2.5 text-xs font-semibold text-slate-500 text-right whitespace-nowrap">Qty</th>
+                                    <th className="px-4 py-2.5 text-xs font-semibold text-slate-500 text-right whitespace-nowrap">Unit price</th>
+                                    <th className="px-4 py-2.5 text-xs font-semibold text-slate-500 text-right whitespace-nowrap">Total</th>
+                                  </tr>
+                                </thead>
+                                <tbody className="divide-y divide-slate-100">
+                                  {job.lineItems.map((li, idx) => (
+                                    <tr key={idx}>
+                                      <td className="px-4 py-3 text-slate-700">{li.name}</td>
+                                      <td className="px-4 py-3 text-slate-600 text-right">{li.quantity}</td>
+                                      <td className="px-4 py-3 text-slate-600 text-right">${li.unitPrice.toFixed(2)}</td>
+                                      <td className="px-4 py-3 text-slate-700 font-medium text-right">${li.total.toFixed(2)}</td>
+                                    </tr>
+                                  ))}
+                                </tbody>
+                              </table>
+                            </div>
+                          </div>
+                        )}
+
+                        {/* Custom fields */}
+                        {job.customFields.length > 0 && (
+                          <div>
+                            <p className="text-xs font-semibold uppercase tracking-widest text-slate-400 mb-2">Custom Fields</p>
+                            <div className="space-y-1">
+                              {job.customFields.map((cf) => (
+                                <p key={cf.label} className="text-sm text-slate-500">
+                                  <span className="font-medium text-slate-700">{cf.label}:</span>{" "}
+                                  {cf.value ?? "—"}
+                                </p>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+
+                        {/* Empty state */}
+                        {!job.instructions && job.lineItems.length === 0 && job.customFields.length === 0 && (
+                          <p className="text-sm text-slate-400">No additional details available.</p>
                         )}
                       </div>
-                      <p className="text-xs text-slate-400 capitalize">
-                        {job.jobStatus.toLowerCase().replace(/_/g, " ")}
-                      </p>
-                      {job.customFields.length > 0 && (
-                        <div className="pt-3 space-y-1 border-t border-slate-100 mt-3">
-                          {job.customFields.map((cf) => (
-                            <p key={cf.label} className="text-sm text-slate-500">
-                              <span className="font-medium text-slate-700">{cf.label}:</span>{" "}
-                              {cf.value ?? "—"}
-                            </p>
-                          ))}
-                        </div>
-                      )}
-                    </div>
-                    <p className="text-sm text-slate-400 shrink-0 pt-0.5">{formatDate(job.completedAt)}</p>
+                    )}
                   </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           )}
         </section>

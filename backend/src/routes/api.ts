@@ -302,6 +302,40 @@ router.get("/assets/:assetId/jobs", async (req: Request, res: Response) => {
       fieldsByJob.get(f.jobId)!.push({ label: f.fieldLabel, value: f.fieldValue });
     }
 
+    // Enrich jobs with live Jobber data: line items, assignee, instructions
+    interface LineItem { name: string; quantity: number; unitPrice: number; total: number }
+    interface JobberDetail {
+      lineItems?: { nodes: LineItem[] };
+      assignedTo?: { nodes: { name: string }[] } | null;
+      instructions?: string | null;
+    }
+    const enrichedMap = new Map<string, JobberDetail>();
+
+    if (jobRows.length > 0) {
+      try {
+        const accessToken = await getValidToken(org.jobberAccountId);
+        const aliases = jobRows
+          .map((j, i) =>
+            `j${i}: node(id: ${JSON.stringify(j.jobberJobId)}) {
+              ... on Job {
+                lineItems { nodes { name quantity unitPrice total } }
+                assignedTo { nodes { name } }
+                instructions
+              }
+            }`
+          )
+          .join("\n");
+
+        const jobberData = await jobberGql<Record<string, JobberDetail>>(accessToken, `{ ${aliases} }`);
+        jobRows.forEach((j, i) => {
+          const detail = jobberData[`j${i}`];
+          if (detail) enrichedMap.set(j.id, detail);
+        });
+      } catch (err) {
+        console.error("[asset-jobs] Jobber enrichment failed (non-fatal):", err);
+      }
+    }
+
     // Status
     const MS_PER_DAY = 24 * 60 * 60 * 1000;
     const AMBER_DAYS = 30;
@@ -328,15 +362,21 @@ router.get("/assets/:assetId/jobs", async (req: Request, res: Response) => {
         jobCount: asset.jobCount,
         status,
       },
-      jobs: jobRows.map((j) => ({
-        id: j.id,
-        jobberJobId: j.jobberJobId,
-        jobNumber: j.jobNumber,
-        title: j.title,
-        completedAt: j.completedAt ?? null,
-        jobStatus: j.jobStatus,
-        customFields: fieldsByJob.get(j.id) ?? [],
-      })),
+      jobs: jobRows.map((j) => {
+        const detail = enrichedMap.get(j.id);
+        return {
+          id: j.id,
+          jobberJobId: j.jobberJobId,
+          jobNumber: j.jobNumber,
+          title: j.title,
+          completedAt: j.completedAt ?? null,
+          jobStatus: j.jobStatus,
+          customFields: fieldsByJob.get(j.id) ?? [],
+          lineItems: detail?.lineItems?.nodes ?? [],
+          technicianName: detail?.assignedTo?.nodes?.[0]?.name ?? null,
+          instructions: detail?.instructions ?? null,
+        };
+      }),
     });
   } catch (err) {
     console.error("[asset-jobs] error:", err);
