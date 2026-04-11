@@ -16,7 +16,11 @@ export default function OAuthCallback() {
         // By the time React loads this page the backend has already exchanged
         // the code — we just need to read the jobberAccountId that was embedded
         // in the redirect URL by the backend.
-        const params = new URLSearchParams(window.location.search);
+        // With HashRouter the query string lives inside the hash fragment e.g. /#/oauth/callback?foo=bar
+        const hashSearch = window.location.hash.includes("?")
+          ? window.location.hash.slice(window.location.hash.indexOf("?"))
+          : "";
+        const params = new URLSearchParams(hashSearch);
         const jobberAccountId = params.get("jobberAccountId");
 
         if (!jobberAccountId) {
