@@ -61,6 +61,13 @@ interface JobberCustomField {
   valueTrueFalse?: boolean;
 }
 
+interface JobberVisitNode {
+  title: string | null;
+  instructions: string | null;
+  startAt: string | null;
+  completedAt: string | null;
+}
+
 interface JobberJobNode {
   id: string;
   jobNumber: number | null;
@@ -70,6 +77,7 @@ interface JobberJobNode {
   completedAt: string | null;
   instructions: string | null;
   client: { id: string } | null;
+  visits: { nodes: JobberVisitNode[] };
   customFields: JobberCustomField[];
 }
 
@@ -177,6 +185,14 @@ const JOBS_QUERY = `
         client {
           id
         }
+        visits(first: 10) {
+          nodes {
+            title
+            instructions
+            startAt
+            completedAt
+          }
+        }
         customFields {
           ... on CustomFieldText      { label valueText }
           ... on CustomFieldNumeric   { label valueNumeric }
@@ -211,6 +227,15 @@ async function syncJobs(accessToken: string, orgId: string): Promise<{ jobsCount
 
     for (const j of nodes) {
       console.log(`[sync] job raw:`, JSON.stringify({ id: j.id, createdAt: j.createdAt, completedAt: j.completedAt, jobStatus: j.jobStatus }));
+      // Collect visit notes — concatenate non-empty visit instructions
+      const visitNotes = j.visits.nodes
+        .map((v) => v.instructions?.trim())
+        .filter(Boolean)
+        .join("\n");
+
+      // Use visit notes if present, otherwise fall back to job-level instructions
+      const notes = visitNotes || j.instructions?.trim() || null;
+
       const jobRow = {
         id: crypto.randomUUID(),
         orgId,
@@ -220,7 +245,7 @@ async function syncJobs(accessToken: string, orgId: string): Promise<{ jobsCount
         jobNumber: j.jobNumber ?? null,
         jobStatus: j.jobStatus,
         assignedTo: null,
-        instructions: j.instructions ?? null,
+        instructions: notes,
         createdAt: safeDate(j.createdAt) ?? new Date(),
         completedAt: safeDate(j.completedAt),
       };
