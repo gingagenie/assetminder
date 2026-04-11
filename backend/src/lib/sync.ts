@@ -6,7 +6,7 @@ import { getValidToken } from "./jobberToken";
 
 const JOBBER_GRAPHQL_URL = "https://api.getjobber.com/api/graphql";
 const JOBBER_API_VERSION = "2025-04-16";
-const PAGE_SIZE = 100;
+const PAGE_SIZE = 50;
 
 // ---------- GraphQL helper ----------
 
@@ -185,7 +185,7 @@ const JOBS_QUERY = `
         client {
           id
         }
-        visits(first: 10) {
+        visits(first: 1) {
           nodes {
             title
             instructions
