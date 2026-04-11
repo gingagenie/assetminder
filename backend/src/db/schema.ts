@@ -1,4 +1,4 @@
-import { pgTable, text, timestamp, integer, unique } from "drizzle-orm/pg-core";
+import { pgTable, text, timestamp, integer, numeric, unique } from "drizzle-orm/pg-core";
 
 export const jobberOrgs = pgTable("jobber_orgs", {
   id: text("id").primaryKey(),
@@ -32,11 +32,22 @@ export const jobs = pgTable("jobs", {
   title: text("title"),
   jobNumber: integer("job_number"),
   jobStatus: text("job_status").notNull(),
+  assignedTo: text("assigned_to"),
+  instructions: text("instructions"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull(),
   completedAt: timestamp("completed_at", { withTimezone: true }),
 }, (t) => [
   unique("jobs_org_jobber_job_unique").on(t.orgId, t.jobberJobId),
 ]);
+
+export const jobLineItems = pgTable("job_line_items", {
+  id: text("id").primaryKey(),
+  jobId: text("job_id").notNull(),
+  name: text("name").notNull(),
+  quantity: numeric("quantity").notNull(),
+  unitPrice: numeric("unit_price").notNull(),
+  total: numeric("total").notNull(),
+});
 
 export const jobCustomFields = pgTable("job_custom_fields", {
   id: text("id").primaryKey(),

@@ -7,7 +7,7 @@ import { syncOrg } from "../lib/sync";
 import { groupAssets } from "../lib/groupAssets";
 import { calculateDueDates } from "../lib/calculateDueDates";
 import { db } from "../db/client";
-import { jobberOrgs, assets, jobs, jobCustomFields, clients } from "../db/schema";
+import { jobberOrgs, assets, jobs, jobCustomFields, jobLineItems, clients } from "../db/schema";
 
 const router = Router();
 
@@ -277,6 +277,8 @@ router.get("/assets/:assetId/jobs", async (req: Request, res: Response) => {
         title: jobs.title,
         completedAt: jobs.completedAt,
         jobStatus: jobs.jobStatus,
+        assignedTo: jobs.assignedTo,
+        instructions: jobs.instructions,
       })
       .from(jobs)
       .innerJoin(
@@ -303,38 +305,19 @@ router.get("/assets/:assetId/jobs", async (req: Request, res: Response) => {
       fieldsByJob.get(f.jobId)!.push({ label: f.fieldLabel, value: f.fieldValue });
     }
 
-    // Enrich jobs with live Jobber data: line items, assignee, instructions
-    interface LineItem { name: string; quantity: number; unitPrice: number; total: number }
-    interface JobberDetail {
-      lineItems?: { nodes: LineItem[] };
-      assignedTo?: { nodes: { name: string }[] } | null;
-      instructions?: string | null;
-    }
-    const enrichedMap = new Map<string, JobberDetail>();
-
-    if (jobRows.length > 0) {
-      try {
-        const accessToken = await getValidToken(org.jobberAccountId);
-        const aliases = jobRows
-          .map((j, i) =>
-            `j${i}: node(id: ${JSON.stringify(j.jobberJobId)}) {
-              ... on Job {
-                lineItems { nodes { name quantity unitPrice total } }
-                assignedTo { nodes { name } }
-                instructions
-              }
-            }`
-          )
-          .join("\n");
-
-        const jobberData = await jobberGql<Record<string, JobberDetail>>(accessToken, `{ ${aliases} }`);
-        jobRows.forEach((j, i) => {
-          const detail = jobberData[`j${i}`];
-          if (detail) enrichedMap.set(j.id, detail);
-        });
-      } catch (err) {
-        console.error("[asset-jobs] Jobber enrichment failed (non-fatal):", err);
-      }
+    // Load enriched data from DB
+    const allLineItems = jobIds.length > 0
+      ? await db.select().from(jobLineItems).where(inArray(jobLineItems.jobId, jobIds))
+      : [];
+    const lineItemsByJob = new Map<string, { name: string; quantity: number; unitPrice: number; total: number }[]>();
+    for (const li of allLineItems) {
+      if (!lineItemsByJob.has(li.jobId)) lineItemsByJob.set(li.jobId, []);
+      lineItemsByJob.get(li.jobId)!.push({
+        name: li.name,
+        quantity: parseFloat(li.quantity),
+        unitPrice: parseFloat(li.unitPrice),
+        total: parseFloat(li.total),
+      });
     }
 
     // Status
@@ -363,21 +346,18 @@ router.get("/assets/:assetId/jobs", async (req: Request, res: Response) => {
         jobCount: asset.jobCount,
         status,
       },
-      jobs: jobRows.map((j) => {
-        const detail = enrichedMap.get(j.id);
-        return {
-          id: j.id,
-          jobberJobId: j.jobberJobId,
-          jobNumber: j.jobNumber,
-          title: j.title,
-          completedAt: j.completedAt ?? null,
-          jobStatus: j.jobStatus,
-          customFields: fieldsByJob.get(j.id) ?? [],
-          lineItems: detail?.lineItems?.nodes ?? [],
-          technicianName: detail?.assignedTo?.nodes?.[0]?.name ?? null,
-          instructions: detail?.instructions ?? null,
-        };
-      }),
+      jobs: jobRows.map((j) => ({
+        id: j.id,
+        jobberJobId: j.jobberJobId,
+        jobNumber: j.jobNumber,
+        title: j.title,
+        completedAt: j.completedAt ?? null,
+        jobStatus: j.jobStatus,
+        customFields: fieldsByJob.get(j.id) ?? [],
+        lineItems: lineItemsByJob.get(j.id) ?? [],
+        technicianName: j.assignedTo ?? null,
+        instructions: j.instructions ?? null,
+      })),
     });
   } catch (err) {
     console.error("[asset-jobs] error:", err);
@@ -568,35 +548,16 @@ router.get("/jobs/:jobId/pdf", async (req: Request, res: Response) => {
       : "—";
     const displayFields = customFields.filter((f) => f.fieldLabel !== assetField);
 
-    // Enrich from Jobber
-    interface LineItem { name: string; quantity: number; unitPrice: number; total: number }
-    let lineItems: LineItem[] = [];
-    let technicianName: string | null = null;
-    let instructions: string | null = null;
-
-    try {
-      const accessToken = await getValidToken(org.jobberAccountId);
-      const data = await jobberGql<{
-        jobDetail: {
-          lineItems?: { nodes: LineItem[] };
-          assignedTo?: { nodes: { name: string }[] } | null;
-          instructions?: string | null;
-        }
-      }>(accessToken, `{
-        jobDetail: node(id: ${JSON.stringify(job.jobberJobId)}) {
-          ... on Job {
-            lineItems { nodes { name quantity unitPrice total } }
-            assignedTo { nodes { name } }
-            instructions
-          }
-        }
-      }`);
-      lineItems = data.jobDetail?.lineItems?.nodes ?? [];
-      technicianName = data.jobDetail?.assignedTo?.nodes?.[0]?.name ?? null;
-      instructions = data.jobDetail?.instructions ?? null;
-    } catch (err) {
-      console.error("[pdf] Jobber enrichment failed (non-fatal):", err);
-    }
+    // Load enriched data from DB
+    const lineItemRows = await db.select().from(jobLineItems).where(eq(jobLineItems.jobId, jobId));
+    const lineItems = lineItemRows.map((li) => ({
+      name: li.name,
+      quantity: parseFloat(li.quantity),
+      unitPrice: parseFloat(li.unitPrice),
+      total: parseFloat(li.total),
+    }));
+    const technicianName = job.assignedTo ?? null;
+    const instructions = job.instructions ?? null;
 
     // Build PDF
     const doc = new PDFDocument({ margin: 50, size: "A4" });

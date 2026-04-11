@@ -1,6 +1,6 @@
 import crypto from "crypto";
 import { db } from "../db/client";
-import { jobberOrgs, clients, jobs, jobCustomFields } from "../db/schema";
+import { jobberOrgs, clients, jobs, jobCustomFields, jobLineItems } from "../db/schema";
 import { eq } from "drizzle-orm";
 import { getValidToken } from "./jobberToken";
 
@@ -61,6 +61,13 @@ interface JobberCustomField {
   valueTrueFalse?: boolean;
 }
 
+interface JobberLineItem {
+  name: string;
+  quantity: number;
+  unitPrice: number;
+  total: number;
+}
+
 interface JobberJobNode {
   id: string;
   jobNumber: number | null;
@@ -68,7 +75,10 @@ interface JobberJobNode {
   jobStatus: string;
   createdAt: string;
   completedAt: string | null;
+  instructions: string | null;
   client: { id: string } | null;
+  assignedTo: { nodes: { name: string }[] } | null;
+  lineItems: { nodes: JobberLineItem[] };
   customFields: JobberCustomField[];
 }
 
@@ -172,8 +182,15 @@ const JOBS_QUERY = `
         jobStatus
         createdAt
         completedAt
+        instructions
         client {
           id
+        }
+        assignedTo {
+          nodes { name }
+        }
+        lineItems {
+          nodes { name quantity unitPrice total }
         }
         customFields {
           ... on CustomFieldText      { label valueText }
@@ -209,6 +226,8 @@ async function syncJobs(accessToken: string, orgId: string): Promise<{ jobsCount
 
     for (const j of nodes) {
       console.log(`[sync] job raw:`, JSON.stringify({ id: j.id, createdAt: j.createdAt, completedAt: j.completedAt, jobStatus: j.jobStatus }));
+      const technicianName = j.assignedTo?.nodes?.[0]?.name ?? null;
+
       const jobRow = {
         id: crypto.randomUUID(),
         orgId,
@@ -217,6 +236,8 @@ async function syncJobs(accessToken: string, orgId: string): Promise<{ jobsCount
         title: j.title ?? null,
         jobNumber: j.jobNumber ?? null,
         jobStatus: j.jobStatus,
+        assignedTo: technicianName,
+        instructions: j.instructions ?? null,
         createdAt: safeDate(j.createdAt) ?? new Date(),
         completedAt: safeDate(j.completedAt),
       };
@@ -230,6 +251,8 @@ async function syncJobs(accessToken: string, orgId: string): Promise<{ jobsCount
             title: jobRow.title,
             jobNumber: jobRow.jobNumber,
             jobStatus: jobRow.jobStatus,
+            assignedTo: jobRow.assignedTo,
+            instructions: jobRow.instructions,
             completedAt: jobRow.completedAt,
             jobberClientId: jobRow.jobberClientId,
           },
@@ -237,6 +260,19 @@ async function syncJobs(accessToken: string, orgId: string): Promise<{ jobsCount
         .returning({ id: jobs.id });
 
       const internalJobId = upsertedJob.id;
+
+      // Upsert line items — delete existing then re-insert for simplicity
+      await db.delete(jobLineItems).where(eq(jobLineItems.jobId, internalJobId));
+      for (const li of j.lineItems.nodes) {
+        await db.insert(jobLineItems).values({
+          id: crypto.randomUUID(),
+          jobId: internalJobId,
+          name: li.name,
+          quantity: String(li.quantity),
+          unitPrice: String(li.unitPrice),
+          total: String(li.total),
+        });
+      }
 
       for (const cf of j.customFields) {
         if (!cf.label) continue;
