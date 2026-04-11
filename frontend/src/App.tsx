@@ -1,4 +1,4 @@
-import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
+import { HashRouter, Routes, Route, Navigate } from "react-router-dom";
 import Landing from "@/pages/Landing";
 import OAuthCallback from "@/pages/OAuthCallback";
 import Onboarding from "@/pages/Onboarding";
@@ -13,7 +13,7 @@ function RequireAuth({ children }: { children: React.ReactNode }) {
 
 export default function App() {
   return (
-    <BrowserRouter>
+    <HashRouter>
       <Routes>
         <Route path="/" element={<Landing />} />
         <Route path="/oauth/callback" element={<OAuthCallback />} />
@@ -22,6 +22,6 @@ export default function App() {
         <Route path="/assets/:assetId" element={<RequireAuth><AssetDetail /></RequireAuth>} />
         <Route path="/portal/:token" element={<Portal />} />
       </Routes>
-    </BrowserRouter>
+    </HashRouter>
   );
 }
