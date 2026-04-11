@@ -206,7 +206,7 @@ export default function Dashboard() {
           ) : (
             <div className="grid gap-3 sm:grid-cols-2">
               {clientsList.map((client) => (
-                <div key={client.id} className="bg-white rounded-xl shadow-sm px-5 py-4 flex items-center justify-between gap-4">
+                <div key={client.id} className="bg-white rounded-xl shadow-sm border border-slate-200 px-5 py-4 flex items-center justify-between gap-4">
                   <div className="min-w-0">
                     <p className="font-semibold text-slate-800 truncate">{client.companyName ?? client.name}</p>
                     {client.email && <p className="text-xs text-slate-400 mt-0.5 truncate">{client.email}</p>}
@@ -237,7 +237,7 @@ export default function Dashboard() {
                   <Link
                     key={asset.id}
                     to={`/assets/${asset.id}`}
-                    className={`block bg-white rounded-xl shadow-sm border-l-4 ${border} px-6 py-5 hover:shadow-md transition-shadow`}
+                    className={`block bg-white rounded-xl shadow-sm border border-slate-200 border-l-4 ${border} px-6 py-5 hover:shadow-md transition-shadow`}
                   >
                     <div className="flex items-start justify-between gap-4 mb-4">
                       <div>

@@ -124,7 +124,7 @@ export default function Portal() {
               return (
                 <div
                   key={asset.id}
-                  className={`bg-white rounded-xl shadow-sm border-l-4 ${border} px-6 py-5`}
+                  className={`bg-white rounded-xl shadow-sm border border-slate-200 border-l-4 ${border} px-6 py-5`}
                 >
                   {/* Top row */}
                   <div className="flex items-start justify-between gap-4 mb-4">
