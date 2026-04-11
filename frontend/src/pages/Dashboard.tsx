@@ -1,10 +1,7 @@
 import { useEffect, useState } from "react";
 import { useNavigate, Link } from "react-router-dom";
 import { API } from "@/lib/api";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { cn } from "@/lib/utils";
 import { Copy, Check } from "lucide-react";
 
 // ---------- Types ----------
@@ -31,20 +28,27 @@ interface Client {
 // ---------- Helpers ----------
 
 const statusConfig = {
-  ok: { label: "OK", className: "bg-green-100 text-green-800" },
-  amber: { label: "Due Soon", className: "bg-yellow-100 text-yellow-800" },
-  overdue: { label: "Overdue", className: "bg-red-100 text-red-800" },
-  unscheduled: { label: "Unscheduled", className: "bg-gray-100 text-gray-600" },
+  ok: {
+    label: "OK",
+    pill: "bg-green-100 text-green-700",
+    border: "border-l-green-500",
+  },
+  amber: {
+    label: "Due Soon",
+    pill: "bg-amber-100 text-amber-700",
+    border: "border-l-amber-500",
+  },
+  overdue: {
+    label: "Overdue",
+    pill: "bg-red-100 text-red-700",
+    border: "border-l-red-500",
+  },
+  unscheduled: {
+    label: "Unscheduled",
+    pill: "bg-slate-100 text-slate-500",
+    border: "border-l-slate-300",
+  },
 };
-
-function StatusBadge({ status }: { status: Asset["status"] }) {
-  const { label, className } = statusConfig[status];
-  return (
-    <span className={cn("inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium", className)}>
-      {label}
-    </span>
-  );
-}
 
 function formatDate(iso: string | null) {
   if (!iso) return "—";
@@ -73,25 +77,41 @@ function PortalLinkModal({
 
   return (
     <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
-      <DialogContent>
+      <DialogContent style={{ fontFamily: "Inter, sans-serif" }}>
         <DialogHeader>
-          <DialogTitle>Client portal link</DialogTitle>
+          <DialogTitle className="text-slate-800">Client portal link</DialogTitle>
         </DialogHeader>
-        <p className="text-sm text-muted-foreground mb-3">
+        <p className="text-sm text-slate-500 mb-3">
           Share this link with your client. It gives them read-only access to their asset service history.
         </p>
         <div className="flex items-center gap-2">
           <input
             readOnly
             value={url}
-            className="flex-1 h-10 rounded-md border border-input bg-muted px-3 py-2 text-sm"
+            className="flex-1 h-10 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700 outline-none"
           />
-          <Button size="icon" variant="outline" onClick={handleCopy}>
-            {copied ? <Check className="h-4 w-4 text-green-600" /> : <Copy className="h-4 w-4" />}
-          </Button>
+          <button
+            onClick={handleCopy}
+            className="h-10 w-10 flex items-center justify-center rounded-lg border border-slate-200 bg-white hover:bg-slate-50 transition-colors"
+          >
+            {copied
+              ? <Check className="h-4 w-4 text-green-600" />
+              : <Copy className="h-4 w-4 text-slate-500" />}
+          </button>
         </div>
       </DialogContent>
     </Dialog>
+  );
+}
+
+// ---------- Section header ----------
+
+function SectionHeader({ title, count }: { title: string; count: number }) {
+  return (
+    <div className="flex items-baseline gap-2 mb-4">
+      <h2 className="text-lg font-semibold text-slate-800">{title}</h2>
+      <span className="text-sm text-slate-400">{count}</span>
+    </div>
   );
 }
 
@@ -146,104 +166,111 @@ export default function Dashboard() {
 
   if (loading) {
     return (
-      <div className="min-h-screen flex items-center justify-center">
-        <p className="text-muted-foreground">Loading…</p>
+      <div style={{ fontFamily: "Inter, sans-serif" }} className="min-h-screen bg-slate-50 flex items-center justify-center">
+        <p className="text-slate-400 text-sm">Loading…</p>
       </div>
     );
   }
 
   if (error) {
     return (
-      <div className="min-h-screen flex items-center justify-center">
-        <p className="text-destructive">{error}</p>
+      <div style={{ fontFamily: "Inter, sans-serif" }} className="min-h-screen bg-slate-50 flex items-center justify-center">
+        <p className="text-red-500 text-sm">{error}</p>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-background p-8">
-      <div className="max-w-4xl mx-auto space-y-6">
+    <div style={{ fontFamily: "Inter, sans-serif", backgroundColor: "#f8fafc" }} className="min-h-screen">
 
-        {/* Header */}
-        <div>
-          <h1 className="text-3xl font-bold tracking-tight">AssetMinder</h1>
+      {/* Nav */}
+      <header style={{ backgroundColor: "#1e293b" }}>
+        <div className="max-w-5xl mx-auto px-6 py-4 flex items-center justify-between">
+          <span className="text-white font-semibold text-lg tracking-tight">AssetMinder</span>
           {accountName && (
-            <p className="text-muted-foreground mt-1">
-              Connected as <span className="font-medium text-foreground">{accountName}</span>
-            </p>
+            <div className="flex items-center gap-2">
+              <span className="h-2 w-2 rounded-full bg-green-400 shrink-0" />
+              <span className="text-slate-300 text-sm">Connected as <span className="text-white font-medium">{accountName}</span></span>
+            </div>
           )}
         </div>
+      </header>
 
-        {/* Clients */}
-        <Card>
-          <CardHeader>
-            <CardTitle>Clients</CardTitle>
-          </CardHeader>
-          <CardContent>
-            {clientsList.length === 0 ? (
-              <p className="text-sm text-muted-foreground">No clients found. Run a sync to populate.</p>
-            ) : (
-              <div className="divide-y">
-                {clientsList.map((client) => (
-                  <div key={client.id} className="flex items-center justify-between py-4 gap-4">
-                    <div className="min-w-0 flex-1">
-                      <p className="font-medium">{client.companyName ?? client.name}</p>
-                      {client.email && <p className="text-sm text-muted-foreground">{client.email}</p>}
-                    </div>
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      disabled={generatingFor === client.id}
-                      onClick={() => handleSharePortal(client.id)}
-                    >
-                      {generatingFor === client.id ? "Generating…" : "Share Portal"}
-                    </Button>
+      <main className="max-w-5xl mx-auto px-6 py-10 space-y-10">
+
+        {/* Clients section */}
+        <section>
+          <SectionHeader title="Clients" count={clientsList.length} />
+          {clientsList.length === 0 ? (
+            <p className="text-slate-400 text-sm">No clients found. Run a sync to populate.</p>
+          ) : (
+            <div className="grid gap-3 sm:grid-cols-2">
+              {clientsList.map((client) => (
+                <div key={client.id} className="bg-white rounded-xl shadow-sm px-5 py-4 flex items-center justify-between gap-4">
+                  <div className="min-w-0">
+                    <p className="font-semibold text-slate-800 truncate">{client.companyName ?? client.name}</p>
+                    {client.email && <p className="text-xs text-slate-400 mt-0.5 truncate">{client.email}</p>}
                   </div>
-                ))}
-              </div>
-            )}
-          </CardContent>
-        </Card>
+                  <button
+                    disabled={generatingFor === client.id}
+                    onClick={() => handleSharePortal(client.id)}
+                    className="shrink-0 text-xs font-semibold px-3 py-1.5 rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50 hover:border-slate-300 transition-colors disabled:opacity-50"
+                  >
+                    {generatingFor === client.id ? "Generating…" : "Share Portal"}
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+        </section>
 
-        {/* Assets */}
-        <Card>
-          <CardHeader>
-            <CardTitle>Assets</CardTitle>
-          </CardHeader>
-          <CardContent>
-            {assets.length === 0 ? (
-              <p className="text-sm text-muted-foreground">
-                No assets found. Run a sync and group assets to populate this list.
-              </p>
-            ) : (
-              <div className="divide-y">
-                {assets.map((asset) => (
+        {/* Assets section */}
+        <section>
+          <SectionHeader title="Assets" count={assets.length} />
+          {assets.length === 0 ? (
+            <p className="text-slate-400 text-sm">No assets found. Run a sync and group assets to populate this list.</p>
+          ) : (
+            <div className="space-y-3">
+              {assets.map((asset) => {
+                const { label, pill, border } = statusConfig[asset.status];
+                return (
                   <Link
                     key={asset.id}
                     to={`/assets/${asset.id}`}
-                    className="flex items-center justify-between py-4 gap-4 hover:bg-muted/50 -mx-6 px-6 transition-colors"
+                    className={`block bg-white rounded-xl shadow-sm border-l-4 ${border} px-6 py-5 hover:shadow-md transition-shadow`}
                   >
-                    <div className="min-w-0 flex-1">
-                      <p className="font-medium truncate">{asset.displayName}</p>
-                      <p className="text-sm text-muted-foreground">{asset.jobCount} job{asset.jobCount !== 1 ? "s" : ""}</p>
+                    <div className="flex items-start justify-between gap-4 mb-4">
+                      <div>
+                        <p className="font-bold text-slate-800 text-base">{asset.displayName}</p>
+                        <p className="text-slate-400 text-xs mt-0.5">{asset.identifier}</p>
+                      </div>
+                      <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-semibold shrink-0 ${pill}`}>
+                        {label}
+                      </span>
                     </div>
-                    <div className="text-sm text-right space-y-1 shrink-0">
-                      <p className="text-muted-foreground">Last serviced: {formatDate(asset.lastServicedAt)}</p>
-                      {asset.nextDueAt && (
-                        <p className="text-muted-foreground">Next due: {formatDate(asset.nextDueAt)}</p>
-                      )}
+                    <div className="grid grid-cols-3 gap-4">
+                      <div>
+                        <p className="text-slate-400 text-xs mb-0.5">Last serviced</p>
+                        <p className="text-slate-700 text-sm font-medium">{formatDate(asset.lastServicedAt)}</p>
+                      </div>
+                      <div>
+                        <p className="text-slate-400 text-xs mb-0.5">Next due</p>
+                        <p className="text-slate-700 text-sm font-medium">{formatDate(asset.nextDueAt)}</p>
+                      </div>
+                      <div>
+                        <p className="text-slate-400 text-xs mb-0.5">Service records</p>
+                        <p className="text-slate-700 text-sm font-medium">{asset.jobCount}</p>
+                      </div>
                     </div>
-                    <StatusBadge status={asset.status} />
                   </Link>
-                ))}
-              </div>
-            )}
-          </CardContent>
-        </Card>
+                );
+              })}
+            </div>
+          )}
+        </section>
 
-      </div>
+      </main>
 
-      {/* Portal link modal */}
       {portalUrl && (
         <PortalLinkModal
           open={!!portalUrl}
