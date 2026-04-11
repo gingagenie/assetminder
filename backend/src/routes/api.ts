@@ -437,7 +437,7 @@ router.post("/clients/:clientId/portal-link", async (req: Request, res: Response
 
     await db.update(clients).set({ portalToken: token }).where(eq(clients.id, clientId));
 
-    res.json({ portalUrl: `${frontendBase}/portal/${token}` });
+    res.json({ portalUrl: `${frontendBase}/#/portal/${token}` });
   } catch (err) {
     res.status(500).json({ error: String(err) });
   }
