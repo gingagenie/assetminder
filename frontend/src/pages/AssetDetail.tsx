@@ -1,9 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useParams, useNavigate, Link } from "react-router-dom";
 import { API } from "@/lib/api";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
-import { cn } from "@/lib/utils";
 import { ChevronLeft } from "lucide-react";
 
 // ---------- Types ----------
@@ -33,20 +30,11 @@ interface JobEntry {
 // ---------- Helpers ----------
 
 const statusConfig = {
-  ok: { label: "OK", className: "bg-green-100 text-green-800" },
-  amber: { label: "Due Soon", className: "bg-yellow-100 text-yellow-800" },
-  overdue: { label: "Overdue", className: "bg-red-100 text-red-800" },
-  unscheduled: { label: "Unscheduled", className: "bg-gray-100 text-gray-600" },
+  ok: { label: "OK", pill: "bg-green-100 text-green-700" },
+  amber: { label: "Due Soon", pill: "bg-amber-100 text-amber-700" },
+  overdue: { label: "Overdue", pill: "bg-red-100 text-red-700" },
+  unscheduled: { label: "Unscheduled", pill: "bg-slate-100 text-slate-500" },
 };
-
-function StatusBadge({ status }: { status: AssetDetail["status"] }) {
-  const { label, className } = statusConfig[status];
-  return (
-    <span className={cn("inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium", className)}>
-      {label}
-    </span>
-  );
-}
 
 function formatDate(iso: string | null) {
   if (!iso) return "—";
@@ -67,6 +55,7 @@ export default function AssetDetail() {
 
   const [intervalInput, setIntervalInput] = useState<string>("");
   const [savingInterval, setSavingInterval] = useState(false);
+  const [intervalSaved, setIntervalSaved] = useState(false);
   const [intervalError, setIntervalError] = useState<string | null>(null);
 
   const ran = useRef(false);
@@ -94,27 +83,27 @@ export default function AssetDetail() {
 
     setSavingInterval(true);
     setIntervalError(null);
+    setIntervalSaved(false);
 
     try {
-      // Save interval
       await fetch(`${API}/api/assets/${asset.id}/interval`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ intervalDays: days }),
       });
 
-      // Recalculate due dates
       await fetch(`${API}/api/calculate-due-dates`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ jobberAccountId }),
       });
 
-      // Refresh asset data
       const res = await fetch(`${API}/api/assets/${asset.id}/jobs`);
       const data = (await res.json()) as { asset: AssetDetail; jobs: JobEntry[] };
       setAsset(data.asset);
       setJobsList(data.jobs);
+      setIntervalSaved(true);
+      setTimeout(() => setIntervalSaved(false), 2500);
     } catch {
       setIntervalError("Failed to save interval. Please try again.");
     } finally {
@@ -124,110 +113,146 @@ export default function AssetDetail() {
 
   if (loading) {
     return (
-      <div className="min-h-screen flex items-center justify-center">
-        <p className="text-muted-foreground">Loading…</p>
+      <div style={{ fontFamily: "Inter, sans-serif" }} className="min-h-screen bg-slate-50 flex items-center justify-center">
+        <p className="text-slate-400 text-sm">Loading…</p>
       </div>
     );
   }
 
   if (error || !asset) {
     return (
-      <div className="min-h-screen flex items-center justify-center">
-        <p className="text-destructive">{error ?? "Asset not found."}</p>
+      <div style={{ fontFamily: "Inter, sans-serif" }} className="min-h-screen bg-slate-50 flex items-center justify-center">
+        <p className="text-red-500 text-sm">{error ?? "Asset not found."}</p>
       </div>
     );
   }
 
-  return (
-    <div className="min-h-screen bg-background p-8">
-      <div className="max-w-3xl mx-auto space-y-6">
+  const { label, pill } = statusConfig[asset.status];
 
-        {/* Back */}
-        <Link to="/dashboard" className="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground transition-colors">
+  return (
+    <div style={{ fontFamily: "Inter, sans-serif", backgroundColor: "#f8fafc" }} className="min-h-screen">
+
+      {/* Nav */}
+      <header style={{ backgroundColor: "#1e293b" }}>
+        <div className="max-w-3xl mx-auto px-6 py-4 flex items-center justify-between">
+          <span className="text-white font-semibold text-lg tracking-tight">AssetMinder</span>
+          {asset.clientName && (
+            <span className="text-slate-400 text-sm font-medium">{asset.clientName}</span>
+          )}
+        </div>
+      </header>
+
+      <main className="max-w-3xl mx-auto px-6 py-10 space-y-8">
+
+        {/* Back link */}
+        <Link
+          to="/dashboard"
+          className="inline-flex items-center gap-1 text-sm text-slate-400 hover:text-slate-600 transition-colors"
+        >
           <ChevronLeft className="h-4 w-4" />
           Back to dashboard
         </Link>
 
-        {/* Header */}
-        <div className="space-y-1">
+        {/* Hero */}
+        <div className="space-y-4">
           {asset.clientName && (
-            <p className="text-sm text-muted-foreground font-medium">{asset.clientName}</p>
+            <p className="text-xs font-semibold uppercase tracking-widest text-slate-400">{asset.clientName}</p>
           )}
-          <div className="flex items-center gap-3">
-            <h1 className="text-3xl font-bold tracking-tight">{asset.displayName}</h1>
-            <StatusBadge status={asset.status} />
+          <div className="flex items-center gap-3 flex-wrap">
+            <h1 className="text-3xl font-bold text-slate-800 tracking-tight">{asset.displayName}</h1>
+            <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-semibold ${pill}`}>
+              {label}
+            </span>
           </div>
-          <div className="flex gap-6 text-sm text-muted-foreground pt-1">
-            <span>Last serviced: {formatDate(asset.lastServicedAt)}</span>
-            {asset.nextDueAt && <span>Next due: {formatDate(asset.nextDueAt)}</span>}
-            <span>{asset.jobCount} job{asset.jobCount !== 1 ? "s" : ""}</span>
+
+          {/* Stats row */}
+          <div className="grid grid-cols-3 gap-4 pt-1">
+            <div>
+              <p className="text-slate-400 text-xs mb-0.5">Last serviced</p>
+              <p className="text-slate-700 text-sm font-semibold">{formatDate(asset.lastServicedAt)}</p>
+            </div>
+            <div>
+              <p className="text-slate-400 text-xs mb-0.5">Next due</p>
+              <p className="text-slate-700 text-sm font-semibold">{formatDate(asset.nextDueAt)}</p>
+            </div>
+            <div>
+              <p className="text-slate-400 text-xs mb-0.5">Service records</p>
+              <p className="text-slate-700 text-sm font-semibold">{asset.jobCount}</p>
+            </div>
           </div>
         </div>
 
-        {/* Service interval */}
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">Service interval</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="flex items-center gap-3">
-              <input
-                type="number"
-                min={1}
-                value={intervalInput}
-                onChange={(e) => setIntervalInput(e.target.value)}
-                placeholder="e.g. 90"
-                className="h-10 w-32 rounded-md border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
-              />
-              <span className="text-sm text-muted-foreground">days</span>
-              <Button size="sm" onClick={handleSaveInterval} disabled={savingInterval}>
-                {savingInterval ? "Saving…" : "Save"}
-              </Button>
-            </div>
-            {intervalError && <p className="text-sm text-destructive mt-2">{intervalError}</p>}
-          </CardContent>
-        </Card>
+        {/* Service interval card */}
+        <div className="bg-white rounded-xl shadow-sm border border-slate-200 px-6 py-5">
+          <p className="text-sm font-semibold text-slate-700 mb-4">Service interval</p>
+          <div className="flex items-center gap-3">
+            <input
+              type="number"
+              min={1}
+              value={intervalInput}
+              onChange={(e) => setIntervalInput(e.target.value)}
+              placeholder="e.g. 90"
+              className="h-10 w-28 rounded-lg border border-slate-200 bg-slate-50 px-3 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-slate-300"
+            />
+            <span className="text-sm text-slate-400">days</span>
+            <button
+              onClick={handleSaveInterval}
+              disabled={savingInterval}
+              style={{ backgroundColor: savingInterval ? undefined : "#1e293b" }}
+              className="h-10 px-4 rounded-lg text-sm font-semibold text-white bg-slate-700 hover:opacity-90 transition-opacity disabled:opacity-50"
+            >
+              {savingInterval ? "Saving…" : intervalSaved ? "Saved!" : "Save"}
+            </button>
+          </div>
+          {intervalError && <p className="text-xs text-red-500 mt-2">{intervalError}</p>}
+        </div>
 
-        {/* Job timeline */}
-        <div className="space-y-3">
-          <h2 className="text-lg font-semibold">Service history</h2>
+        {/* Service history */}
+        <section>
+          <div className="flex items-baseline gap-2 mb-4">
+            <h2 className="text-lg font-semibold text-slate-800">Service history</h2>
+            <span className="text-sm text-slate-400">{jobsList.length}</span>
+          </div>
+
           {jobsList.length === 0 ? (
-            <p className="text-sm text-muted-foreground">No jobs found for this asset.</p>
+            <p className="text-slate-400 text-sm">No jobs found for this asset.</p>
           ) : (
-            jobsList.map((job) => (
-              <Card key={job.id}>
-                <CardContent className="pt-5 pb-5">
+            <div className="space-y-3">
+              {jobsList.map((job) => (
+                <div key={job.id} className="bg-white rounded-xl shadow-sm border border-slate-200 px-6 py-5">
                   <div className="flex items-start justify-between gap-4">
                     <div className="space-y-1 min-w-0">
-                      <p className="font-medium">
-                        {job.title ?? `Job #${job.jobNumber ?? "—"}`}
+                      <div className="flex items-baseline gap-2">
+                        <p className="font-bold text-slate-800">
+                          {job.title ?? `Job #${job.jobNumber ?? "—"}`}
+                        </p>
                         {job.jobNumber && job.title && (
-                          <span className="ml-2 text-sm text-muted-foreground font-normal">#{job.jobNumber}</span>
+                          <span className="text-xs text-slate-400 font-normal">#{job.jobNumber}</span>
                         )}
-                      </p>
-                      <p className="text-sm text-muted-foreground capitalize">
+                      </div>
+                      <p className="text-xs text-slate-400 capitalize">
                         {job.jobStatus.toLowerCase().replace(/_/g, " ")}
                       </p>
                       {job.customFields.length > 0 && (
-                        <div className="pt-2 space-y-0.5">
+                        <div className="pt-3 space-y-1 border-t border-slate-100 mt-3">
                           {job.customFields.map((cf) => (
-                            <p key={cf.label} className="text-sm text-muted-foreground">
-                              <span className="font-medium text-foreground">{cf.label}:</span>{" "}
+                            <p key={cf.label} className="text-sm text-slate-500">
+                              <span className="font-medium text-slate-700">{cf.label}:</span>{" "}
                               {cf.value ?? "—"}
                             </p>
                           ))}
                         </div>
                       )}
                     </div>
-                    <p className="text-sm text-muted-foreground shrink-0">{formatDate(job.completedAt)}</p>
+                    <p className="text-sm text-slate-400 shrink-0 pt-0.5">{formatDate(job.completedAt)}</p>
                   </div>
-                </CardContent>
-              </Card>
-            ))
+                </div>
+              ))}
+            </div>
           )}
-        </div>
+        </section>
 
-      </div>
+      </main>
     </div>
   );
 }
