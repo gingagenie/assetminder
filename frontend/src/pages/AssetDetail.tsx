@@ -268,6 +268,13 @@ export default function AssetDetail() {
                         </div>
                         <div className="flex items-center gap-3 shrink-0">
                           <p className="text-sm text-slate-400">{formatDate(job.completedAt)}</p>
+                          <a
+                            href={`${API}/api/jobs/${job.id}/pdf`}
+                            onClick={(e) => e.stopPropagation()}
+                            className="text-xs font-semibold px-2.5 py-1 rounded-lg border border-slate-200 text-slate-500 hover:bg-slate-50 hover:border-slate-300 transition-colors"
+                          >
+                            PDF
+                          </a>
                           <svg
                             className={`h-4 w-4 text-slate-400 transition-transform ${isExpanded ? "rotate-180" : ""}`}
                             fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}

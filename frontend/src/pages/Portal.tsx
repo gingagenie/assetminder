@@ -17,27 +17,19 @@ interface PortalData {
   assets: PortalAsset[];
 }
 
+interface JobEntry {
+  id: string;
+  jobNumber: number | null;
+  title: string | null;
+  completedAt: string | null;
+  jobStatus: string;
+}
+
 const statusConfig = {
-  ok: {
-    label: "OK",
-    pill: "bg-green-100 text-green-700",
-    border: "border-l-green-500",
-  },
-  amber: {
-    label: "Due Soon",
-    pill: "bg-amber-100 text-amber-700",
-    border: "border-l-amber-500",
-  },
-  overdue: {
-    label: "Overdue",
-    pill: "bg-red-100 text-red-700",
-    border: "border-l-red-500",
-  },
-  unscheduled: {
-    label: "Unscheduled",
-    pill: "bg-slate-100 text-slate-500",
-    border: "border-l-slate-300",
-  },
+  ok: { label: "OK", pill: "bg-green-100 text-green-700", border: "border-l-green-500" },
+  amber: { label: "Due Soon", pill: "bg-amber-100 text-amber-700", border: "border-l-amber-500" },
+  overdue: { label: "Overdue", pill: "bg-red-100 text-red-700", border: "border-l-red-500" },
+  unscheduled: { label: "Unscheduled", pill: "bg-slate-100 text-slate-500", border: "border-l-slate-300" },
 };
 
 function formatDate(iso: string | null) {
@@ -49,12 +41,10 @@ function buildSummary(assets: PortalAsset[]) {
   const total = assets.length;
   const overdue = assets.filter((a) => a.status === "overdue").length;
   const due = assets.filter((a) => a.status === "amber").length;
-
   const parts: string[] = [`${total} asset${total !== 1 ? "s" : ""} tracked`];
   if (overdue > 0) parts.push(`${overdue} overdue`);
   else if (due > 0) parts.push(`${due} service${due !== 1 ? "s" : ""} due soon`);
   else if (total > 0) parts.push("all services up to date");
-
   return parts.join(" · ");
 }
 
@@ -63,6 +53,11 @@ export default function Portal() {
   const [data, setData] = useState<PortalData | null>(null);
   const [loading, setLoading] = useState(true);
   const [notFound, setNotFound] = useState(false);
+
+  // Expanded asset state + lazy-loaded jobs
+  const [expandedAssets, setExpandedAssets] = useState<Set<string>>(new Set());
+  const [assetJobs, setAssetJobs] = useState<Record<string, JobEntry[]>>({});
+  const [loadingJobs, setLoadingJobs] = useState<Set<string>>(new Set());
 
   useEffect(() => {
     fetch(`${API}/api/portal/${token}`)
@@ -74,6 +69,32 @@ export default function Portal() {
       .catch(() => setNotFound(true))
       .finally(() => setLoading(false));
   }, [token]);
+
+  async function toggleAsset(assetId: string) {
+    setExpandedAssets((prev) => {
+      const next = new Set(prev);
+      if (next.has(assetId)) {
+        next.delete(assetId);
+        return next;
+      }
+      next.add(assetId);
+      return next;
+    });
+
+    // Fetch jobs if not already loaded
+    if (!assetJobs[assetId]) {
+      setLoadingJobs((prev) => new Set(prev).add(assetId));
+      try {
+        const res = await fetch(`${API}/api/assets/${assetId}/jobs`);
+        const d = await res.json() as { jobs: JobEntry[] };
+        setAssetJobs((prev) => ({ ...prev, [assetId]: d.jobs }));
+      } catch {
+        setAssetJobs((prev) => ({ ...prev, [assetId]: [] }));
+      } finally {
+        setLoadingJobs((prev) => { const n = new Set(prev); n.delete(assetId); return n; });
+      }
+    }
+  }
 
   if (loading) {
     return (
@@ -121,37 +142,90 @@ export default function Portal() {
           ) : (
             data.assets.map((asset) => {
               const { label, pill, border } = statusConfig[asset.status];
+              const isExpanded = expandedAssets.has(asset.id);
+              const jobs = assetJobs[asset.id] ?? [];
+              const isLoadingJobs = loadingJobs.has(asset.id);
+
               return (
                 <div
                   key={asset.id}
-                  className={`bg-white rounded-xl shadow-sm border border-slate-200 border-l-4 ${border} px-6 py-5`}
+                  className={`bg-white rounded-xl shadow-sm border border-slate-200 border-l-4 ${border} overflow-hidden`}
                 >
-                  {/* Top row */}
-                  <div className="flex items-start justify-between gap-4 mb-4">
-                    <div>
-                      <p className="font-bold text-slate-800 text-base">{asset.displayName}</p>
-                      <p className="text-slate-400 text-xs mt-0.5">{asset.identifier}</p>
+                  {/* Asset summary — click to expand */}
+                  <button
+                    onClick={() => toggleAsset(asset.id)}
+                    className="w-full text-left px-6 py-5 hover:bg-slate-50 transition-colors"
+                  >
+                    <div className="flex items-start justify-between gap-4 mb-4">
+                      <div>
+                        <p className="font-bold text-slate-800 text-base">{asset.displayName}</p>
+                        <p className="text-slate-400 text-xs mt-0.5">{asset.identifier}</p>
+                      </div>
+                      <div className="flex items-center gap-3 shrink-0">
+                        <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-semibold ${pill}`}>
+                          {label}
+                        </span>
+                        <svg
+                          className={`h-4 w-4 text-slate-400 transition-transform ${isExpanded ? "rotate-180" : ""}`}
+                          fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}
+                        >
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+                        </svg>
+                      </div>
                     </div>
-                    <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-semibold shrink-0 ${pill}`}>
-                      {label}
-                    </span>
-                  </div>
+                    <div className="grid grid-cols-3 gap-4">
+                      <div>
+                        <p className="text-slate-400 text-xs mb-0.5">Last serviced</p>
+                        <p className="text-slate-700 text-sm font-medium">{formatDate(asset.lastServicedAt)}</p>
+                      </div>
+                      <div>
+                        <p className="text-slate-400 text-xs mb-0.5">Next due</p>
+                        <p className="text-slate-700 text-sm font-medium">{formatDate(asset.nextDueAt)}</p>
+                      </div>
+                      <div>
+                        <p className="text-slate-400 text-xs mb-0.5">Service records</p>
+                        <p className="text-slate-700 text-sm font-medium">{asset.jobCount}</p>
+                      </div>
+                    </div>
+                  </button>
 
-                  {/* Metadata row */}
-                  <div className="grid grid-cols-3 gap-4">
-                    <div>
-                      <p className="text-slate-400 text-xs mb-0.5">Last serviced</p>
-                      <p className="text-slate-700 text-sm font-medium">{formatDate(asset.lastServicedAt)}</p>
+                  {/* Expanded job list */}
+                  {isExpanded && (
+                    <div className="border-t border-slate-100">
+                      {isLoadingJobs ? (
+                        <p className="px-6 py-4 text-sm text-slate-400">Loading service records…</p>
+                      ) : jobs.length === 0 ? (
+                        <p className="px-6 py-4 text-sm text-slate-400">No service records found.</p>
+                      ) : (
+                        <div className="divide-y divide-slate-100">
+                          {jobs.map((job) => (
+                            <div key={job.id} className="px-6 py-4 flex items-center justify-between gap-4">
+                              <div>
+                                <p className="font-semibold text-slate-800 text-sm">
+                                  {job.title ?? `Job #${job.jobNumber ?? "—"}`}
+                                  {job.jobNumber && job.title && (
+                                    <span className="ml-2 text-xs text-slate-400 font-normal">#{job.jobNumber}</span>
+                                  )}
+                                </p>
+                                <p className="text-xs text-slate-400 mt-0.5 capitalize">
+                                  {job.jobStatus.toLowerCase().replace(/_/g, " ")}
+                                </p>
+                              </div>
+                              <div className="flex items-center gap-3 shrink-0">
+                                <p className="text-sm text-slate-400">{formatDate(job.completedAt)}</p>
+                                <a
+                                  href={`${API}/api/jobs/${job.id}/pdf`}
+                                  className="text-xs font-semibold px-2.5 py-1 rounded-lg border border-slate-200 text-slate-500 hover:bg-slate-50 hover:border-slate-300 transition-colors"
+                                >
+                                  PDF
+                                </a>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
                     </div>
-                    <div>
-                      <p className="text-slate-400 text-xs mb-0.5">Next due</p>
-                      <p className="text-slate-700 text-sm font-medium">{formatDate(asset.nextDueAt)}</p>
-                    </div>
-                    <div>
-                      <p className="text-slate-400 text-xs mb-0.5">Service records</p>
-                      <p className="text-slate-700 text-sm font-medium">{asset.jobCount}</p>
-                    </div>
-                  </div>
+                  )}
                 </div>
               );
             })

@@ -1,6 +1,7 @@
 import { Router, Request, Response } from "express";
 import { eq, and, inArray, desc } from "drizzle-orm";
 import crypto from "crypto";
+import PDFDocument from "pdfkit";
 import { getValidToken } from "../lib/jobberToken";
 import { syncOrg } from "../lib/sync";
 import { groupAssets } from "../lib/groupAssets";
@@ -533,6 +534,201 @@ router.get("/portal/:token", async (req: Request, res: Response) => {
     });
   } catch (err) {
     res.status(500).json({ error: String(err) });
+  }
+});
+
+// ---------- GET /api/jobs/:jobId/pdf ----------
+
+router.get("/jobs/:jobId/pdf", async (req: Request, res: Response) => {
+  const jobId = String(req.params.jobId);
+
+  try {
+    const [job] = await db.select().from(jobs).where(eq(jobs.id, jobId)).limit(1);
+    if (!job) { res.status(404).json({ error: "Job not found" }); return; }
+
+    const [org] = await db.select().from(jobberOrgs).where(eq(jobberOrgs.id, job.orgId)).limit(1);
+    if (!org) { res.status(404).json({ error: "Org not found" }); return; }
+
+    // Client name
+    let clientName = "—";
+    if (job.jobberClientId) {
+      const [client] = await db
+        .select({ name: clients.name, companyName: clients.companyName })
+        .from(clients)
+        .where(and(eq(clients.orgId, job.orgId), eq(clients.jobberClientId, job.jobberClientId)))
+        .limit(1);
+      if (client) clientName = client.companyName ?? client.name;
+    }
+
+    // Custom fields + asset identifier
+    const customFields = await db.select().from(jobCustomFields).where(eq(jobCustomFields.jobId, jobId));
+    const assetField = org.assetIdentifierField;
+    const assetIdentifier = assetField
+      ? (customFields.find((f) => f.fieldLabel === assetField)?.fieldValue ?? "—")
+      : "—";
+    const displayFields = customFields.filter((f) => f.fieldLabel !== assetField);
+
+    // Enrich from Jobber
+    interface LineItem { name: string; quantity: number; unitPrice: number; total: number }
+    let lineItems: LineItem[] = [];
+    let technicianName: string | null = null;
+    let instructions: string | null = null;
+
+    try {
+      const accessToken = await getValidToken(org.jobberAccountId);
+      const data = await jobberGql<{
+        jobDetail: {
+          lineItems?: { nodes: LineItem[] };
+          assignedTo?: { nodes: { name: string }[] } | null;
+          instructions?: string | null;
+        }
+      }>(accessToken, `{
+        jobDetail: node(id: ${JSON.stringify(job.jobberJobId)}) {
+          ... on Job {
+            lineItems { nodes { name quantity unitPrice total } }
+            assignedTo { nodes { name } }
+            instructions
+          }
+        }
+      }`);
+      lineItems = data.jobDetail?.lineItems?.nodes ?? [];
+      technicianName = data.jobDetail?.assignedTo?.nodes?.[0]?.name ?? null;
+      instructions = data.jobDetail?.instructions ?? null;
+    } catch (err) {
+      console.error("[pdf] Jobber enrichment failed (non-fatal):", err);
+    }
+
+    // Build PDF
+    const doc = new PDFDocument({ margin: 50, size: "A4" });
+    const L = 50;
+    const R = (doc.page.width as number) - 50;
+    const W = R - L;
+    const navy = "#1e293b";
+    const slate = "#64748b";
+    const rule = "#e2e8f0";
+
+    res.setHeader("Content-Type", "application/pdf");
+    res.setHeader(
+      "Content-Disposition",
+      `attachment; filename="service-report-${job.jobNumber ?? jobId}.pdf"`
+    );
+    doc.pipe(res);
+
+    // ── Header bar ──────────────────────────────────────────────
+    doc.rect(0, 0, doc.page.width as number, 78).fill(navy);
+    doc.fillColor("white").fontSize(22).font("Helvetica-Bold").text("Service Report", L, 20);
+    doc.fillColor("#94a3b8").fontSize(10).font("Helvetica").text("AssetMinder", L, 48);
+
+    let y = 98;
+
+    // ── Asset / Client row ───────────────────────────────────────
+    doc.fillColor(slate).fontSize(8).font("Helvetica")
+      .text("ASSET", L, y, { width: W / 2 });
+    doc.text("CLIENT", L + W / 2, y, { width: W / 2 });
+    y += 14;
+    doc.fillColor(navy).fontSize(15).font("Helvetica-Bold")
+      .text(assetIdentifier, L, y, { width: W / 2 });
+    doc.text(clientName, L + W / 2, y, { width: W / 2 });
+    y += 32;
+
+    // ── Divider ──────────────────────────────────────────────────
+    doc.moveTo(L, y).lineTo(R, y).lineWidth(0.5).strokeColor(rule).stroke();
+    y += 16;
+
+    // ── Job details row ──────────────────────────────────────────
+    const completedStr = job.completedAt
+      ? new Date(job.completedAt).toLocaleDateString(undefined, { dateStyle: "medium" })
+      : "—";
+    const statusStr = job.jobStatus.toLowerCase().replace(/_/g, " ");
+    const details = [
+      { label: "JOB NUMBER", value: job.jobNumber ? `#${job.jobNumber}` : "—" },
+      { label: "DATE", value: completedStr },
+      { label: "TECHNICIAN", value: technicianName ?? "—" },
+      { label: "STATUS", value: statusStr },
+    ];
+    const colW = W / details.length;
+    details.forEach((d, i) => {
+      const x = L + i * colW;
+      doc.fillColor(slate).fontSize(8).font("Helvetica").text(d.label, x, y, { width: colW });
+      doc.fillColor(navy).fontSize(11).font("Helvetica-Bold").text(d.value, x, y + 13, { width: colW });
+    });
+    y += 46;
+
+    // ── Notes ────────────────────────────────────────────────────
+    if (instructions) {
+      doc.moveTo(L, y).lineTo(R, y).lineWidth(0.5).strokeColor(rule).stroke();
+      y += 16;
+      doc.fillColor(slate).fontSize(8).font("Helvetica").text("NOTES", L, y);
+      y += 13;
+      doc.fillColor(navy).fontSize(10).font("Helvetica").text(instructions, L, y, { width: W });
+      y += doc.heightOfString(instructions, { width: W }) + 16;
+    }
+
+    // ── Custom fields ────────────────────────────────────────────
+    if (displayFields.length > 0) {
+      doc.moveTo(L, y).lineTo(R, y).lineWidth(0.5).strokeColor(rule).stroke();
+      y += 16;
+      doc.fillColor(slate).fontSize(8).font("Helvetica").text("CUSTOM FIELDS", L, y);
+      y += 14;
+      displayFields.forEach((f) => {
+        doc.fillColor(slate).fontSize(9).font("Helvetica").text(`${f.fieldLabel}:`, L, y, { width: 140, continued: false });
+        doc.fillColor(navy).fontSize(9).font("Helvetica-Bold").text(f.fieldValue ?? "—", L + 145, y, { width: W - 145 });
+        y += 16;
+      });
+      y += 4;
+    }
+
+    // ── Line items table ─────────────────────────────────────────
+    if (lineItems.length > 0) {
+      doc.moveTo(L, y).lineTo(R, y).lineWidth(0.5).strokeColor(rule).stroke();
+      y += 16;
+      doc.fillColor(slate).fontSize(8).font("Helvetica").text("LINE ITEMS", L, y);
+      y += 14;
+
+      // Table header
+      const cols = { desc: L, qty: L + W * 0.55, price: L + W * 0.7, total: L + W * 0.85 };
+      doc.rect(L, y, W, 22).fill("#f1f5f9");
+      doc.fillColor(slate).fontSize(8).font("Helvetica-Bold")
+        .text("DESCRIPTION", cols.desc + 6, y + 7, { width: W * 0.5 });
+      doc.text("QTY", cols.qty, y + 7, { width: W * 0.12, align: "right" });
+      doc.text("UNIT PRICE", cols.price, y + 7, { width: W * 0.14, align: "right" });
+      doc.text("TOTAL", cols.total, y + 7, { width: W * 0.14, align: "right" });
+      y += 22;
+
+      lineItems.forEach((li, idx) => {
+        if (idx % 2 === 1) doc.rect(L, y, W, 20).fill("#f8fafc");
+        doc.fillColor(navy).fontSize(9).font("Helvetica")
+          .text(li.name, cols.desc + 6, y + 5, { width: W * 0.5 });
+        doc.text(String(li.quantity), cols.qty, y + 5, { width: W * 0.12, align: "right" });
+        doc.text(`$${li.unitPrice.toFixed(2)}`, cols.price, y + 5, { width: W * 0.14, align: "right" });
+        doc.font("Helvetica-Bold")
+          .text(`$${li.total.toFixed(2)}`, cols.total, y + 5, { width: W * 0.14, align: "right" });
+        y += 20;
+      });
+
+      // Total row
+      const grandTotal = lineItems.reduce((sum, li) => sum + li.total, 0);
+      doc.rect(L, y, W, 24).fill(navy);
+      doc.fillColor("white").fontSize(10).font("Helvetica-Bold")
+        .text("TOTAL", cols.desc + 6, y + 7, { width: W * 0.8 });
+      doc.text(`$${grandTotal.toFixed(2)}`, cols.total, y + 7, { width: W * 0.14, align: "right" });
+      y += 32;
+    }
+
+    // ── Footer ───────────────────────────────────────────────────
+    const pageH = doc.page.height as number;
+    doc.moveTo(L, pageH - 50).lineTo(R, pageH - 50).lineWidth(0.5).strokeColor(rule).stroke();
+    doc.fillColor(slate).fontSize(8).font("Helvetica")
+      .text(
+        "Generated by AssetMinder · assetminder-frontend.onrender.com",
+        L, pageH - 36,
+        { width: W, align: "center" }
+      );
+
+    doc.end();
+  } catch (err) {
+    console.error("[pdf] error:", err);
+    if (!res.headersSent) res.status(500).json({ error: String(err) });
   }
 });
 
