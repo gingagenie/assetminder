@@ -10,7 +10,7 @@ const PAGE_SIZE = 50;
 
 // ---------- GraphQL helper ----------
 
-async function gql<T>(accessToken: string, query: string, variables: Record<string, unknown> = {}): Promise<T> {
+async function gql<T>(accessToken: string, query: string, variables: Record<string, unknown> = {}, attempt = 1): Promise<T> {
   const res = await fetch(JOBBER_GRAPHQL_URL, {
     method: "POST",
     headers: {
@@ -30,6 +30,13 @@ async function gql<T>(accessToken: string, query: string, variables: Record<stri
   const json = JSON.parse(text) as { data?: T; errors?: { message: string }[] };
 
   if (json.errors?.length) {
+    const isThrottled = json.errors.some((e) => e.message.toLowerCase().includes("throttl"));
+    if (isThrottled && attempt < 4) {
+      const delay = attempt * 3000;
+      console.log(`[sync] Throttled by Jobber, retrying in ${delay}ms (attempt ${attempt})...`);
+      await new Promise((r) => setTimeout(r, delay));
+      return gql<T>(accessToken, query, variables, attempt + 1);
+    }
     throw new Error(`Jobber GraphQL errors: ${json.errors.map((e) => e.message).join(", ")}`);
   }
 
