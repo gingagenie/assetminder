@@ -5,6 +5,15 @@ import authRouter from "./routes/auth";
 import apiRouter from "./routes/api";
 import webhookRouter from "./routes/webhooks";
 
+// Extend Request type to carry the raw body buffer for HMAC verification
+declare global {
+  namespace Express {
+    interface Request {
+      rawBody?: Buffer;
+    }
+  }
+}
+
 const app = express();
 const PORT = process.env.PORT ?? 3001;
 
@@ -15,11 +24,15 @@ const allowedOrigins = [
 
 app.use(cors({ origin: allowedOrigins, credentials: true }));
 
-// Webhook route must be registered BEFORE express.json() so it receives
-// the raw request body buffer needed for HMAC signature verification.
-app.use("/api/webhooks", webhookRouter);
-
-app.use(express.json());
+// Capture raw body on every request before JSON parsing so webhook HMAC
+// verification always has the original bytes regardless of route order.
+app.use(
+  express.json({
+    verify: (_req, _res, buf) => {
+      (_req as express.Request).rawBody = buf;
+    },
+  })
+);
 
 app.get("/health", (_req, res) => {
   res.json({ status: "ok" });

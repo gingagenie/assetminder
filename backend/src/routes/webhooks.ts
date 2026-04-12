@@ -1,5 +1,4 @@
 import { Router, Request, Response } from "express";
-import express from "express";
 import crypto from "crypto";
 import { syncOrg } from "../lib/sync";
 import { groupAssets } from "../lib/groupAssets";
@@ -13,9 +12,9 @@ interface JobberWebhookPayload {
   data?: unknown;
 }
 
-// Use express.raw() at route level so we get the raw Buffer for HMAC verification.
-// This route must be registered in index.ts BEFORE app.use(express.json()).
-router.post("/jobber", express.raw({ type: "*/*" }), (req: Request, res: Response) => {
+// Raw body is captured by the express.json({ verify }) callback in index.ts
+// and stored on req.rawBody, so we don't need route-level express.raw() here.
+router.post("/jobber", (req: Request, res: Response) => {
   const secret = process.env.JOBBER_WEBHOOK_SECRET;
   if (!secret) {
     console.error("[webhook] JOBBER_WEBHOOK_SECRET not set");
@@ -29,8 +28,14 @@ router.post("/jobber", express.raw({ type: "*/*" }), (req: Request, res: Respons
     return;
   }
 
-  // Verify HMAC-SHA256 signature
-  const rawBody = req.body as Buffer;
+  const rawBody = req.rawBody;
+  if (!rawBody) {
+    console.error("[webhook] rawBody not available — verify callback may not be running");
+    res.status(500).json({ error: "Raw body unavailable" });
+    return;
+  }
+
+  // Verify HMAC-SHA256 using the raw request bytes
   const expected = crypto.createHmac("sha256", secret).update(rawBody).digest("base64");
   const expectedBuf = Buffer.from(expected);
   const signatureBuf = Buffer.from(signature);
@@ -40,24 +45,18 @@ router.post("/jobber", express.raw({ type: "*/*" }), (req: Request, res: Respons
     crypto.timingSafeEqual(expectedBuf, signatureBuf);
 
   if (!valid) {
-    console.warn("[webhook] invalid HMAC signature — rejecting");
+    console.warn(
+      `[webhook] invalid HMAC — received="${signature}" expected="${expected}"`
+    );
     res.status(401).json({ error: "Invalid signature" });
     return;
   }
 
-  // Parse body
-  let payload: JobberWebhookPayload;
-  try {
-    payload = JSON.parse(rawBody.toString("utf8")) as JobberWebhookPayload;
-  } catch {
-    res.status(400).json({ error: "Invalid JSON payload" });
-    return;
-  }
-
+  // req.body is already parsed JSON by express.json()
+  const payload = req.body as JobberWebhookPayload;
   const { topic, accountId } = payload;
 
   if (!["JOB_CREATE", "JOB_UPDATE"].includes(topic)) {
-    // Acknowledge unknown topics without processing
     res.status(200).json({ ok: true, skipped: true, topic });
     return;
   }
