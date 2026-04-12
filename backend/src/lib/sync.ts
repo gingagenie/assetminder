@@ -64,7 +64,6 @@ interface JobberCustomField {
 interface JobberVisitNode {
   title: string | null;
   instructions: string | null;
-  notes: string | null;
   assignedUsers: { nodes: { name: string }[] } | null;
 }
 
@@ -188,7 +187,6 @@ const JOBS_QUERY = `
         visits(first: 1) {
           nodes {
             instructions
-            notes
             assignedUsers {
               nodes { name }
             }
@@ -232,7 +230,6 @@ async function syncJobs(accessToken: string, orgId: string): Promise<{ jobsCount
 
       // Visit notes (what the tech wrote) preferred over visit instructions or job instructions
       const workNotes =
-        firstVisit?.notes?.trim() ||
         firstVisit?.instructions?.trim() ||
         j.instructions?.trim() ||
         null;
