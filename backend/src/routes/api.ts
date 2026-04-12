@@ -368,21 +368,6 @@ router.get("/assets/:assetId/jobs", async (req: Request, res: Response) => {
       fieldsByJob.get(f.jobId)!.push({ label: f.fieldLabel, value: f.fieldValue });
     }
 
-    // Load enriched data from DB
-    const allLineItems = jobIds.length > 0
-      ? await db.select().from(jobLineItems).where(inArray(jobLineItems.jobId, jobIds))
-      : [];
-    const lineItemsByJob = new Map<string, { name: string; quantity: number; unitPrice: number; total: number }[]>();
-    for (const li of allLineItems) {
-      if (!lineItemsByJob.has(li.jobId)) lineItemsByJob.set(li.jobId, []);
-      lineItemsByJob.get(li.jobId)!.push({
-        name: li.name,
-        quantity: parseFloat(li.quantity),
-        unitPrice: parseFloat(li.unitPrice),
-        total: parseFloat(li.total),
-      });
-    }
-
     // Status
     const MS_PER_DAY = 24 * 60 * 60 * 1000;
     const AMBER_DAYS = 30;
@@ -417,7 +402,7 @@ router.get("/assets/:assetId/jobs", async (req: Request, res: Response) => {
         completedAt: j.completedAt ?? null,
         jobStatus: j.jobStatus,
         customFields: fieldsByJob.get(j.id) ?? [],
-        lineItems: lineItemsByJob.get(j.id) ?? [],
+        lineItems: [],
         technicianName: j.assignedTo ?? null,
         instructions: j.instructions ?? null,
       })),
