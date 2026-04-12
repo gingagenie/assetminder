@@ -557,8 +557,6 @@ async function fetchJobVisitData(accessToken: string, jobberJobId: string): Prom
     });
 
     const text = await res.text();
-    console.log(`[visit] raw response for jobberJobId=${jobberJobId}:`, text.slice(0, 500));
-
     const json = JSON.parse(text) as {
       data?: {
         job?: {
@@ -579,14 +577,10 @@ async function fetchJobVisitData(accessToken: string, jobberJobId: string): Prom
     }
 
     const visit = json.data?.job?.visits?.nodes?.[0];
-    if (!visit) {
-      console.log(`[visit] no visits found for jobberJobId=${jobberJobId}`);
-      return { workNotes: null, technicianName: null };
-    }
+    if (!visit) return { workNotes: null, technicianName: null };
 
     const workNotes = visit.instructions?.trim() || null;
     const technicianName = visit.assignedUsers?.nodes?.[0]?.name?.full ?? null;
-    console.log(`[visit] found: workNotes=${workNotes?.slice(0, 50)}, tech=${technicianName}`);
 
     return { workNotes, technicianName };
   } catch (err) {
