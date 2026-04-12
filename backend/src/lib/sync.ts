@@ -64,7 +64,7 @@ interface JobberCustomField {
 interface JobberVisitNode {
   title: string | null;
   instructions: string | null;
-  assignedUsers: { name: string }[] | null;
+  assignedUsers: { nodes: { name: { full: string } }[] } | null;
 }
 
 interface JobberJobNode {
@@ -188,7 +188,7 @@ const JOBS_QUERY = `
           nodes {
             instructions
             assignedUsers {
-              name
+              nodes { name { full } }
             }
           }
         }
@@ -234,7 +234,7 @@ async function syncJobs(accessToken: string, orgId: string): Promise<{ jobsCount
         j.instructions?.trim() ||
         null;
 
-      const technicianName = firstVisit?.assignedUsers?.[0]?.name ?? null;
+      const technicianName = firstVisit?.assignedUsers?.nodes?.[0]?.name?.full ?? null;
 
       const jobRow = {
         id: crypto.randomUUID(),
