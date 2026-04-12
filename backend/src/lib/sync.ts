@@ -64,8 +64,8 @@ interface JobberCustomField {
 interface JobberVisitNode {
   title: string | null;
   instructions: string | null;
-  startAt: string | null;
-  completedAt: string | null;
+  notes: string | null;
+  assignedUsers: { nodes: { name: string }[] } | null;
 }
 
 interface JobberJobNode {
@@ -187,10 +187,11 @@ const JOBS_QUERY = `
         }
         visits(first: 1) {
           nodes {
-            title
             instructions
-            startAt
-            completedAt
+            notes
+            assignedUsers {
+              nodes { name }
+            }
           }
         }
         customFields {
@@ -227,14 +228,16 @@ async function syncJobs(accessToken: string, orgId: string): Promise<{ jobsCount
 
     for (const j of nodes) {
       console.log(`[sync] job raw:`, JSON.stringify({ id: j.id, createdAt: j.createdAt, completedAt: j.completedAt, jobStatus: j.jobStatus }));
-      // Collect visit notes — concatenate non-empty visit instructions
-      const visitNotes = j.visits.nodes
-        .map((v) => v.instructions?.trim())
-        .filter(Boolean)
-        .join("\n");
+      const firstVisit = j.visits.nodes[0] ?? null;
 
-      // Use visit notes if present, otherwise fall back to job-level instructions
-      const notes = visitNotes || j.instructions?.trim() || null;
+      // Visit notes (what the tech wrote) preferred over visit instructions or job instructions
+      const workNotes =
+        firstVisit?.notes?.trim() ||
+        firstVisit?.instructions?.trim() ||
+        j.instructions?.trim() ||
+        null;
+
+      const technicianName = firstVisit?.assignedUsers?.nodes?.[0]?.name ?? null;
 
       const jobRow = {
         id: crypto.randomUUID(),
@@ -244,8 +247,8 @@ async function syncJobs(accessToken: string, orgId: string): Promise<{ jobsCount
         title: j.title ?? null,
         jobNumber: j.jobNumber ?? null,
         jobStatus: j.jobStatus,
-        assignedTo: null,
-        instructions: notes,
+        assignedTo: technicianName,
+        instructions: workNotes,
         createdAt: safeDate(j.createdAt) ?? new Date(),
         completedAt: safeDate(j.completedAt),
       };
