@@ -68,12 +68,6 @@ interface JobberCustomField {
   valueTrueFalse?: boolean;
 }
 
-interface JobberVisitNode {
-  title: string | null;
-  instructions: string | null;
-  assignedUsers: { nodes: { name: { full: string } }[] } | null;
-}
-
 interface JobberJobNode {
   id: string;
   jobNumber: number | null;
@@ -83,7 +77,6 @@ interface JobberJobNode {
   completedAt: string | null;
   instructions: string | null;
   client: { id: string } | null;
-  visits: { nodes: JobberVisitNode[] };
   customFields: JobberCustomField[];
 }
 
@@ -191,14 +184,6 @@ const JOBS_QUERY = `
         client {
           id
         }
-        visits(first: 1) {
-          nodes {
-            instructions
-            assignedUsers {
-              nodes { name { full } }
-            }
-          }
-        }
         customFields {
           ... on CustomFieldText      { label valueText }
           ... on CustomFieldNumeric   { label valueNumeric }
@@ -233,16 +218,6 @@ async function syncJobs(accessToken: string, orgId: string): Promise<{ jobsCount
 
     for (const j of nodes) {
       console.log(`[sync] job raw:`, JSON.stringify({ id: j.id, createdAt: j.createdAt, completedAt: j.completedAt, jobStatus: j.jobStatus }));
-      const firstVisit = j.visits.nodes[0] ?? null;
-
-      // Visit notes (what the tech wrote) preferred over visit instructions or job instructions
-      const workNotes =
-        firstVisit?.instructions?.trim() ||
-        j.instructions?.trim() ||
-        null;
-
-      const technicianName = firstVisit?.assignedUsers?.nodes?.[0]?.name?.full ?? null;
-
       const jobRow = {
         id: crypto.randomUUID(),
         orgId,
@@ -251,8 +226,8 @@ async function syncJobs(accessToken: string, orgId: string): Promise<{ jobsCount
         title: j.title ?? null,
         jobNumber: j.jobNumber ?? null,
         jobStatus: j.jobStatus,
-        assignedTo: technicianName,
-        instructions: workNotes,
+        assignedTo: null,
+        instructions: j.instructions?.trim() ?? null,
         createdAt: safeDate(j.createdAt) ?? new Date(),
         completedAt: safeDate(j.completedAt),
       };

@@ -502,6 +502,74 @@ router.get("/portal/:token", async (req: Request, res: Response) => {
   }
 });
 
+// ---------- GET /api/jobs/:jobId/notes (live visit data from Jobber) ----------
+
+router.get("/jobs/:jobId/notes", async (req: Request, res: Response) => {
+  const jobId = String(req.params.jobId);
+
+  try {
+    const [job] = await db.select({ id: jobs.id, jobberJobId: jobs.jobberJobId, orgId: jobs.orgId })
+      .from(jobs).where(eq(jobs.id, jobId)).limit(1);
+    if (!job) { res.status(404).json({ error: "Job not found" }); return; }
+
+    const [org] = await db.select().from(jobberOrgs).where(eq(jobberOrgs.id, job.orgId)).limit(1);
+    if (!org) { res.status(404).json({ error: "Org not found" }); return; }
+
+    const accessToken = await getValidToken(org.jobberAccountId);
+    const visitData = await fetchJobVisitData(accessToken, job.jobberJobId);
+
+    res.json(visitData);
+  } catch (err) {
+    console.error("[job-notes] error:", err);
+    res.status(500).json({ error: String(err) });
+  }
+});
+
+// ---------- helper: fetch first visit's work notes + technician from Jobber ----------
+
+async function fetchJobVisitData(accessToken: string, jobberJobId: string): Promise<{ workNotes: string | null; technicianName: string | null }> {
+  const query = `{
+    node(id: ${JSON.stringify(jobberJobId)}) {
+      ... on Job {
+        visits(first: 1) {
+          nodes {
+            instructions
+            assignedUsers {
+              nodes {
+                name { full }
+              }
+            }
+          }
+        }
+      }
+    }
+  }`;
+
+  try {
+    const data = await jobberGql<{
+      node: {
+        visits?: {
+          nodes: {
+            instructions: string | null;
+            assignedUsers: { nodes: { name: { full: string } }[] };
+          }[];
+        };
+      };
+    }>(accessToken, query);
+
+    const visit = data?.node?.visits?.nodes?.[0];
+    if (!visit) return { workNotes: null, technicianName: null };
+
+    const workNotes = visit.instructions?.trim() || null;
+    const technicianName = visit.assignedUsers?.nodes?.[0]?.name?.full ?? null;
+
+    return { workNotes, technicianName };
+  } catch (err) {
+    console.warn("[pdf] failed to fetch visit data from Jobber:", err);
+    return { workNotes: null, technicianName: null };
+  }
+}
+
 // ---------- GET /api/jobs/:jobId/pdf ----------
 
 router.get("/jobs/:jobId/pdf", async (req: Request, res: Response) => {
@@ -524,6 +592,10 @@ router.get("/jobs/:jobId/pdf", async (req: Request, res: Response) => {
         .limit(1);
       if (client) clientName = client.companyName ?? client.name;
     }
+
+    // Live visit data from Jobber (work notes + technician)
+    const accessToken = await getValidToken(org.jobberAccountId);
+    const { workNotes, technicianName } = await fetchJobVisitData(accessToken, job.jobberJobId);
 
     // Custom fields — separate asset identifier from display fields
     const customFields = await db.select().from(jobCustomFields).where(eq(jobCustomFields.jobId, jobId));
@@ -580,10 +652,11 @@ router.get("/jobs/:jobId/pdf", async (req: Request, res: Response) => {
     doc.moveTo(L, y).lineTo(R, y).lineWidth(0.5).strokeColor(rule).stroke();
     y += 16;
 
-    // Job details — 3 columns: number, date, status
+    // Job details — 4 columns: number, date, technician, status
     const details = [
       { label: "JOB NUMBER", value: job.jobNumber ? `#${job.jobNumber}` : "—" },
       { label: dateLabel, value: completedStr },
+      { label: "TECHNICIAN", value: technicianName ?? "—" },
       { label: "STATUS", value: statusStr },
     ];
     const colW = W / details.length;
@@ -604,14 +677,19 @@ router.get("/jobs/:jobId/pdf", async (req: Request, res: Response) => {
       y += 24;
     }
 
-    // Instructions / notes
-    if (job.instructions) {
+    // Work carried out (visit instructions — most important section)
+    const workNotesText = workNotes ?? job.instructions;
+    if (workNotesText) {
       doc.moveTo(L, y).lineTo(R, y).lineWidth(0.5).strokeColor(rule).stroke();
       y += 16;
-      doc.fillColor(slate).fontSize(8).font("Helvetica").text("WORK NOTES", L, y);
+      // Highlighted label
+      doc.fillColor(slate).fontSize(8).font("Helvetica").text("WORK CARRIED OUT", L, y);
       y += 13;
-      doc.fillColor(navy).fontSize(10).font("Helvetica").text(job.instructions, L, y, { width: W });
-      y += doc.heightOfString(job.instructions, { width: W }) + 16;
+      // Light background box
+      const textHeight = doc.heightOfString(workNotesText, { width: W });
+      doc.rect(L, y - 6, W, textHeight + 16).fill("#f1f5f9");
+      doc.fillColor(navy).fontSize(11).font("Helvetica").text(workNotesText, L + 10, y, { width: W - 20 });
+      y += textHeight + 24;
     }
 
     // Custom fields

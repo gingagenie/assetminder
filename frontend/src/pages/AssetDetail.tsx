@@ -68,13 +68,29 @@ export default function AssetDetail() {
   const [intervalSaved, setIntervalSaved] = useState(false);
   const [intervalError, setIntervalError] = useState<string | null>(null);
   const [expandedJobs, setExpandedJobs] = useState<Set<string>>(new Set());
+  const [jobNotes, setJobNotes] = useState<Record<string, { workNotes: string | null; technicianName: string | null }>>({});
+  const [loadingNotes, setLoadingNotes] = useState<Set<string>>(new Set());
 
-  function toggleJob(id: string) {
+  async function toggleJob(id: string) {
     setExpandedJobs((prev) => {
       const next = new Set(prev);
       next.has(id) ? next.delete(id) : next.add(id);
       return next;
     });
+
+    // Lazy-load visit notes on first expand
+    if (!jobNotes[id]) {
+      setLoadingNotes((prev) => new Set(prev).add(id));
+      try {
+        const res = await fetch(`${API}/api/jobs/${id}/notes`);
+        const data = await res.json() as { workNotes: string | null; technicianName: string | null };
+        setJobNotes((prev) => ({ ...prev, [id]: data }));
+      } catch {
+        setJobNotes((prev) => ({ ...prev, [id]: { workNotes: null, technicianName: null } }));
+      } finally {
+        setLoadingNotes((prev) => { const n = new Set(prev); n.delete(id); return n; });
+      }
+    }
   }
 
   const ran = useRef(false);
@@ -286,67 +302,64 @@ export default function AssetDetail() {
                     </button>
 
                     {/* Expanded detail */}
-                    {isExpanded && (
-                      <div className="border-t border-slate-100 px-6 py-5 space-y-5">
+                    {isExpanded && (() => {
+                      const notes = jobNotes[job.id];
+                      const isLoadingNotes = loadingNotes.has(job.id);
+                      const workNotes = notes?.workNotes ?? null;
+                      const techName = notes?.technicianName ?? job.technicianName;
 
-                        {/* Instructions */}
-                        {job.instructions && (
-                          <div>
-                            <p className="text-xs font-semibold uppercase tracking-widest text-slate-400 mb-2">Notes</p>
-                            <p className="text-sm text-slate-600 leading-relaxed">{job.instructions}</p>
-                          </div>
-                        )}
+                      return (
+                        <div className="border-t border-slate-100 px-6 py-5 space-y-5">
 
-                        {/* Line items */}
-                        {job.lineItems.length > 0 && (
-                          <div>
-                            <p className="text-xs font-semibold uppercase tracking-widest text-slate-400 mb-3">Line Items</p>
-                            <div className="rounded-lg border border-slate-100 overflow-hidden">
-                              <table className="w-full text-sm">
-                                <thead>
-                                  <tr className="bg-slate-50 text-left">
-                                    <th className="px-4 py-2.5 text-xs font-semibold text-slate-500 w-full">Description</th>
-                                    <th className="px-4 py-2.5 text-xs font-semibold text-slate-500 text-right whitespace-nowrap">Qty</th>
-                                    <th className="px-4 py-2.5 text-xs font-semibold text-slate-500 text-right whitespace-nowrap">Unit price</th>
-                                    <th className="px-4 py-2.5 text-xs font-semibold text-slate-500 text-right whitespace-nowrap">Total</th>
-                                  </tr>
-                                </thead>
-                                <tbody className="divide-y divide-slate-100">
-                                  {job.lineItems.map((li, idx) => (
-                                    <tr key={idx}>
-                                      <td className="px-4 py-3 text-slate-700">{li.name}</td>
-                                      <td className="px-4 py-3 text-slate-600 text-right">{li.quantity}</td>
-                                      <td className="px-4 py-3 text-slate-600 text-right">${li.unitPrice.toFixed(2)}</td>
-                                      <td className="px-4 py-3 text-slate-700 font-medium text-right">${li.total.toFixed(2)}</td>
-                                    </tr>
-                                  ))}
-                                </tbody>
-                              </table>
+                          {/* Work carried out — most prominent section */}
+                          {isLoadingNotes ? (
+                            <p className="text-sm text-slate-400">Loading work notes…</p>
+                          ) : workNotes ? (
+                            <div>
+                              <p className="text-xs font-semibold uppercase tracking-widest text-slate-400 mb-2">Work carried out</p>
+                              <div className="rounded-lg bg-slate-50 border border-slate-200 px-4 py-3">
+                                <p className="text-sm text-slate-700 leading-relaxed whitespace-pre-wrap">{workNotes}</p>
+                              </div>
                             </div>
-                          </div>
-                        )}
-
-                        {/* Custom fields */}
-                        {job.customFields.length > 0 && (
-                          <div>
-                            <p className="text-xs font-semibold uppercase tracking-widest text-slate-400 mb-2">Custom Fields</p>
-                            <div className="space-y-1">
-                              {job.customFields.map((cf) => (
-                                <p key={cf.label} className="text-sm text-slate-500">
-                                  <span className="font-medium text-slate-700">{cf.label}:</span>{" "}
-                                  {cf.value ?? "—"}
-                                </p>
-                              ))}
+                          ) : job.instructions ? (
+                            <div>
+                              <p className="text-xs font-semibold uppercase tracking-widest text-slate-400 mb-2">Work carried out</p>
+                              <div className="rounded-lg bg-slate-50 border border-slate-200 px-4 py-3">
+                                <p className="text-sm text-slate-700 leading-relaxed whitespace-pre-wrap">{job.instructions}</p>
+                              </div>
                             </div>
-                          </div>
-                        )}
+                          ) : null}
 
-                        {/* Empty state */}
-                        {!job.instructions && job.lineItems.length === 0 && job.customFields.length === 0 && (
-                          <p className="text-sm text-slate-400">No additional details available.</p>
-                        )}
-                      </div>
-                    )}
+                          {/* Technician (from live visit data if available) */}
+                          {techName && (
+                            <div>
+                              <p className="text-xs font-semibold uppercase tracking-widest text-slate-400 mb-1">Technician</p>
+                              <p className="text-sm text-slate-700 font-medium">{techName}</p>
+                            </div>
+                          )}
+
+                          {/* Custom fields */}
+                          {job.customFields.length > 0 && (
+                            <div>
+                              <p className="text-xs font-semibold uppercase tracking-widest text-slate-400 mb-2">Job Details</p>
+                              <div className="space-y-1">
+                                {job.customFields.map((cf) => (
+                                  <p key={cf.label} className="text-sm text-slate-500">
+                                    <span className="font-medium text-slate-700">{cf.label}:</span>{" "}
+                                    {cf.value ?? "—"}
+                                  </p>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+
+                          {/* Empty state */}
+                          {!isLoadingNotes && !workNotes && !job.instructions && !techName && job.customFields.length === 0 && (
+                            <p className="text-sm text-slate-400">No additional details available.</p>
+                          )}
+                        </div>
+                      );
+                    })()}
                   </div>
                 );
               })}
