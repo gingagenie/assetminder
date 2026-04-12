@@ -32,7 +32,7 @@ async function gql<T>(accessToken: string, query: string, variables: Record<stri
   if (json.errors?.length) {
     const isThrottled = json.errors.some((e) => e.message.toLowerCase().includes("throttl"));
     if (isThrottled && attempt < 4) {
-      const delay = attempt * 3000;
+      const delay = attempt * 10000;
       console.log(`[sync] Throttled by Jobber, retrying in ${delay}ms (attempt ${attempt})...`);
       await new Promise((r) => setTimeout(r, delay));
       return gql<T>(accessToken, query, variables, attempt + 1);
@@ -324,6 +324,10 @@ export async function syncOrg(jobberAccountId: string): Promise<SyncResult> {
 
   const accessToken = await getValidToken(jobberAccountId);
 
+  // Warm up the Jobber API connection before the heavy sync queries
+  console.log(`[sync] warming up Jobber API connection...`);
+  await gql(accessToken, "{ account { name } }").catch(() => {});
+  await new Promise((r) => setTimeout(r, 5000));
   console.log(`[sync] starting sync for org ${org.id}`);
 
   const clientsUpserted = await syncClients(accessToken, org.id);
