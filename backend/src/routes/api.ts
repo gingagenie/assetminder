@@ -46,6 +46,69 @@ async function requireOrg(jobberAccountId: string) {
   return org;
 }
 
+// ---------- GET /api/debug/schema (temporary — introspect Job + Visit fields) ----------
+
+router.get("/debug/schema", async (req: Request, res: Response) => {
+  const { jobberAccountId } = req.query;
+  if (!jobberAccountId || typeof jobberAccountId !== "string") {
+    res.status(400).json({ error: "Missing jobberAccountId" }); return;
+  }
+  try {
+    const accessToken = await getValidToken(jobberAccountId);
+    const data = await jobberGql<{ job: unknown; visit: unknown }>(accessToken, `{
+      job: __type(name: "Job") {
+        fields { name type { name kind ofType { name kind } } }
+      }
+      visit: __type(name: "Visit") {
+        fields { name type { name kind ofType { name kind } } }
+      }
+    }`);
+    res.json(data);
+  } catch (err) {
+    res.status(500).json({ error: String(err) });
+  }
+});
+
+// ---------- GET /api/debug/job/:jobberJobId (temporary — raw job fetch) ----------
+
+router.get("/debug/job/:jobberJobId", async (req: Request, res: Response) => {
+  const { jobberAccountId } = req.query;
+  const jobberJobId = String(req.params.jobberJobId);
+  if (!jobberAccountId || typeof jobberAccountId !== "string") {
+    res.status(400).json({ error: "Missing jobberAccountId" }); return;
+  }
+  try {
+    const accessToken = await getValidToken(jobberAccountId as string);
+    const data = await jobberGql<unknown>(accessToken, `{
+      node(id: ${JSON.stringify(jobberJobId)}) {
+        ... on Job {
+          id
+          title
+          instructions
+          description
+          jobNotes
+          completionNotes
+          jobberWebUri
+          visits(first: 3) {
+            nodes {
+              title
+              instructions
+              completionNotes
+              description
+              note
+              startAt
+              completedAt
+            }
+          }
+        }
+      }
+    }`);
+    res.json(data);
+  } catch (err) {
+    res.status(500).json({ error: String(err) });
+  }
+});
+
 // ---------- GET /api/me ----------
 
 router.get("/me", async (req: Request, res: Response) => {
