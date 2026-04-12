@@ -528,16 +528,16 @@ router.get("/jobs/:jobId/notes", async (req: Request, res: Response) => {
 // ---------- helper: fetch first visit's work notes + technician from Jobber ----------
 
 async function fetchJobVisitData(accessToken: string, jobberJobId: string): Promise<{ workNotes: string | null; technicianName: string | null }> {
+  // Query a single job's first visit for work notes and technician
+  // Inline the ID as a literal to avoid variable type issues
   const query = `{
-    node(id: ${JSON.stringify(jobberJobId)}) {
-      ... on Job {
-        visits(first: 1) {
-          nodes {
-            instructions
-            assignedUsers {
-              nodes {
-                name { full }
-              }
+    job(id: ${JSON.stringify(jobberJobId)}) {
+      visits(first: 1) {
+        nodes {
+          instructions
+          assignedUsers {
+            nodes {
+              name { full }
             }
           }
         }
@@ -546,26 +546,51 @@ async function fetchJobVisitData(accessToken: string, jobberJobId: string): Prom
   }`;
 
   try {
-    const data = await jobberGql<{
-      node: {
-        visits?: {
-          nodes: {
-            instructions: string | null;
-            assignedUsers: { nodes: { name: { full: string } }[] };
-          }[];
+    const res = await fetch(JOBBER_GRAPHQL_URL, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${accessToken}`,
+        "X-JOBBER-GRAPHQL-VERSION": JOBBER_API_VERSION,
+      },
+      body: JSON.stringify({ query }),
+    });
+
+    const text = await res.text();
+    console.log(`[visit] raw response for jobberJobId=${jobberJobId}:`, text.slice(0, 500));
+
+    const json = JSON.parse(text) as {
+      data?: {
+        job?: {
+          visits?: {
+            nodes: {
+              instructions: string | null;
+              assignedUsers: { nodes: { name: { full: string } }[] };
+            }[];
+          };
         };
       };
-    }>(accessToken, query);
+      errors?: { message: string }[];
+    };
 
-    const visit = data?.node?.visits?.nodes?.[0];
-    if (!visit) return { workNotes: null, technicianName: null };
+    if (json.errors?.length) {
+      console.error(`[visit] GraphQL errors:`, json.errors.map(e => e.message).join(", "));
+      return { workNotes: null, technicianName: null };
+    }
+
+    const visit = json.data?.job?.visits?.nodes?.[0];
+    if (!visit) {
+      console.log(`[visit] no visits found for jobberJobId=${jobberJobId}`);
+      return { workNotes: null, technicianName: null };
+    }
 
     const workNotes = visit.instructions?.trim() || null;
     const technicianName = visit.assignedUsers?.nodes?.[0]?.name?.full ?? null;
+    console.log(`[visit] found: workNotes=${workNotes?.slice(0, 50)}, tech=${technicianName}`);
 
     return { workNotes, technicianName };
   } catch (err) {
-    console.warn("[pdf] failed to fetch visit data from Jobber:", err);
+    console.error(`[visit] FAILED for jobberJobId=${jobberJobId}:`, String(err));
     return { workNotes: null, technicianName: null };
   }
 }
