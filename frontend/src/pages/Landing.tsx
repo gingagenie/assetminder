@@ -1,3 +1,4 @@
+import { Link } from "react-router-dom";
 import { API } from "@/lib/api";
 
 const steps = [
@@ -130,7 +131,10 @@ export default function Landing() {
       {/* Footer */}
       <footer className="mt-auto border-t border-slate-200 py-6">
         <p className="text-center text-xs text-slate-400">
-          Powered by AssetMinder · Built for Jobber users
+          AssetMinder · Built for Jobber users ·{" "}
+          <Link to="/terms" className="hover:text-slate-600 transition-colors">Terms of Service</Link>
+          {" · "}
+          <Link to="/privacy" className="hover:text-slate-600 transition-colors">Privacy Policy</Link>
         </p>
       </footer>
 
