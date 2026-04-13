@@ -12,8 +12,8 @@ interface JobberWebhookPayload {
   data?: unknown;
 }
 
-// Raw body is captured by the express.json({ verify }) callback in index.ts
-// and stored on req.rawBody, so we don't need route-level express.raw() here.
+// express.raw({ type: 'application/json' }) is registered for this path in
+// index.ts before express.json(), so req.body is a raw Buffer here.
 router.post("/jobber", (req: Request, res: Response) => {
   const secret = process.env.JOBBER_WEBHOOK_SECRET;
   if (!secret) {
@@ -22,38 +22,29 @@ router.post("/jobber", (req: Request, res: Response) => {
     return;
   }
 
-  const signature = req.headers["x-jobber-hmac-sha256"];
-  if (!signature || typeof signature !== "string") {
+  const signature = req.headers["x-jobber-hmac-sha256"] as string | undefined;
+  if (!signature) {
     res.status(401).json({ error: "Missing X-Jobber-Hmac-SHA256 header" });
     return;
   }
 
-  const rawBody = req.rawBody;
-  if (!rawBody) {
-    console.error("[webhook] rawBody not available — verify callback may not be running");
-    res.status(500).json({ error: "Raw body unavailable" });
-    return;
-  }
+  // req.body is a Buffer (set by express.raw in index.ts)
+  const rawBody = req.body as Buffer;
 
-  // Verify HMAC-SHA256 using the raw request bytes
-  const expected = crypto.createHmac("sha256", secret).update(rawBody).digest("base64");
-  const expectedBuf = Buffer.from(expected);
-  const signatureBuf = Buffer.from(signature);
+  const hmac = crypto.createHmac("sha256", secret);
+  hmac.update(rawBody);
+  const digest = "sha256=" + hmac.digest("base64");
 
-  const valid =
-    expectedBuf.length === signatureBuf.length &&
-    crypto.timingSafeEqual(expectedBuf, signatureBuf);
-
-  if (!valid) {
-    console.warn(
-      `[webhook] invalid HMAC — received="${signature}" expected="${expected}"`
-    );
+  if (
+    digest.length !== signature.length ||
+    !crypto.timingSafeEqual(Buffer.from(digest), Buffer.from(signature))
+  ) {
+    console.warn(`[webhook] invalid HMAC — received="${signature}" expected="${digest}"`);
     res.status(401).json({ error: "Invalid signature" });
     return;
   }
 
-  // req.body is already parsed JSON by express.json()
-  const payload = req.body as JobberWebhookPayload;
+  const payload = JSON.parse(rawBody.toString()) as JobberWebhookPayload;
   const { topic, accountId } = payload;
 
   if (!["JOB_CREATE", "JOB_UPDATE"].includes(topic)) {
