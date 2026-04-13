@@ -154,7 +154,11 @@ export default function Dashboard() {
   async function handleSharePortal(clientId: string) {
     setGeneratingFor(clientId);
     try {
-      const res = await fetch(`${API}/api/clients/${clientId}/portal-link`, { method: "POST" });
+      const res = await fetch(`${API}/api/clients/${clientId}/portal-link`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ jobberAccountId }),
+      });
       const data = (await res.json()) as { portalUrl: string };
       setPortalUrl(data.portalUrl);
     } catch {

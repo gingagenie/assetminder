@@ -178,7 +178,12 @@ router.get("/orgs/field-mapping", async (req: Request, res: Response) => {
 
 router.post("/assets/:assetId/interval", async (req: Request, res: Response) => {
   const { assetId } = req.params;
-  const { intervalDays } = req.body as { intervalDays?: number };
+  const { intervalDays, jobberAccountId } = req.body as { intervalDays?: number; jobberAccountId?: string };
+
+  if (!jobberAccountId) {
+    res.status(400).json({ error: "Missing required body param: jobberAccountId" });
+    return;
+  }
 
   if (!intervalDays || typeof intervalDays !== "number" || intervalDays < 1) {
     res.status(400).json({ error: "intervalDays must be a positive integer" });
@@ -186,10 +191,12 @@ router.post("/assets/:assetId/interval", async (req: Request, res: Response) => 
   }
 
   try {
+    const org = await requireOrg(jobberAccountId);
+
     const [updated] = await db
       .update(assets)
       .set({ serviceIntervalDays: Math.round(intervalDays) })
-      .where(eq(assets.id, String(assetId)))
+      .where(and(eq(assets.id, String(assetId)), eq(assets.orgId, org.id)))
       .returning({ id: assets.id, identifier: assets.identifier });
 
     if (!updated) {
@@ -433,10 +440,22 @@ router.get("/clients", async (req: Request, res: Response) => {
 
 router.post("/clients/:clientId/portal-link", async (req: Request, res: Response) => {
   const clientId = String(req.params.clientId);
+  const { jobberAccountId } = req.body as { jobberAccountId?: string };
   const frontendBase = process.env.FRONTEND_URL ?? "http://localhost:3000";
 
+  if (!jobberAccountId) {
+    res.status(400).json({ error: "Missing required body param: jobberAccountId" });
+    return;
+  }
+
   try {
-    const [existing] = await db.select().from(clients).where(eq(clients.id, clientId)).limit(1);
+    const org = await requireOrg(jobberAccountId);
+
+    const [existing] = await db
+      .select()
+      .from(clients)
+      .where(and(eq(clients.id, clientId), eq(clients.orgId, org.id)))
+      .limit(1);
     if (!existing) { res.status(404).json({ error: "Client not found" }); return; }
 
     const token = crypto.randomUUID();

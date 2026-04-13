@@ -124,7 +124,7 @@ export default function AssetDetail() {
       await fetch(`${API}/api/assets/${asset.id}/interval`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ intervalDays: days }),
+        body: JSON.stringify({ intervalDays: days, jobberAccountId }),
       });
 
       await fetch(`${API}/api/calculate-due-dates`, {
