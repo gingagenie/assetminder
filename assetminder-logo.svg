@@ -1,0 +1,37 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="384" height="384" viewBox="0 0 384 384">
+  <!-- Navy background -->
+  <rect width="384" height="384" fill="#1e293b"/>
+
+  <!--
+    AM monogram — drawn as geometric stroke paths, no font dependency.
+
+    Canvas: 384×384
+    Letters occupy: x 78–306, y 87–297 (210px tall, 228px wide total)
+    Stroke width: 24   Linecap: round   Linejoin: round
+
+    A  (x 78–182, centre 130)
+      Left leg:   (78,297) → (130,87)
+      Right leg: (130,87)  → (182,297)
+      Crossbar:  (104,192) → (156,192)   [midpoint of letter height]
+
+    M  (x 202–306, centre 254)
+      Full shape: (202,297)→(202,87)→(254,171)→(306,87)→(306,297)
+      V-dip at y=171 (40 % from top)
+  -->
+
+  <!-- A — left leg -->
+  <line x1="78"  y1="297" x2="130" y2="87"  stroke="white" stroke-width="24" stroke-linecap="round"/>
+  <!-- A — right leg -->
+  <line x1="130" y1="87"  x2="182" y2="297" stroke="white" stroke-width="24" stroke-linecap="round"/>
+  <!-- A — crossbar -->
+  <line x1="104" y1="192" x2="156" y2="192" stroke="white" stroke-width="24" stroke-linecap="round"/>
+
+  <!-- M -->
+  <polyline
+    points="202,297 202,87 254,171 306,87 306,297"
+    fill="none"
+    stroke="white"
+    stroke-width="24"
+    stroke-linecap="round"
+    stroke-linejoin="round"/>
+</svg>
