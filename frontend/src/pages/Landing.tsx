@@ -63,7 +63,6 @@ export default function Landing() {
           >
             Connect to Jobber
           </a>
-          <p className="text-slate-400 text-sm mt-4">No credit card required · 14-day free trial</p>
         </div>
       </section>
 
@@ -124,7 +123,6 @@ export default function Landing() {
           >
             Connect to Jobber
           </a>
-          <p className="text-slate-400 text-sm mt-4">No credit card required · 14-day free trial</p>
         </div>
       </section>
 
