@@ -129,6 +129,7 @@ export default function Dashboard() {
 
   const [portalUrl, setPortalUrl] = useState<string | null>(null);
   const [generatingFor, setGeneratingFor] = useState<string | null>(null);
+  const [disconnecting, setDisconnecting] = useState(false);
 
   useEffect(() => {
     if (!jobberAccountId) { navigate("/"); return; }
@@ -150,6 +151,25 @@ export default function Dashboard() {
       .catch(() => setError("Failed to load dashboard data."))
       .finally(() => setLoading(false));
   }, [jobberAccountId, navigate]);
+
+  async function handleDisconnect() {
+    if (!jobberAccountId) return;
+    if (!window.confirm("Disconnect AssetMinder from Jobber? This will delete all synced data and revoke access. This cannot be undone.")) return;
+
+    setDisconnecting(true);
+    try {
+      await fetch(`${API}/api/disconnect`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ jobberAccountId }),
+      });
+    } catch {
+      // Continue with local cleanup even if the API call fails
+    } finally {
+      localStorage.removeItem("jobberAccountId");
+      navigate("/");
+    }
+  }
 
   async function handleSharePortal(clientId: string) {
     setGeneratingFor(clientId);
@@ -191,12 +211,21 @@ export default function Dashboard() {
       <header style={{ backgroundColor: "#1e293b" }}>
         <div className="max-w-5xl mx-auto px-6 py-4 flex items-center justify-between">
           <span className="text-white font-semibold text-lg tracking-tight">AssetMinder</span>
-          {accountName && (
-            <div className="flex items-center gap-2">
-              <span className="h-2 w-2 rounded-full bg-green-400 shrink-0" />
-              <span className="text-slate-300 text-sm">Connected as <span className="text-white font-medium">{accountName}</span></span>
-            </div>
-          )}
+          <div className="flex items-center gap-4">
+            {accountName && (
+              <div className="flex items-center gap-2">
+                <span className="h-2 w-2 rounded-full bg-green-400 shrink-0" />
+                <span className="text-slate-300 text-sm">Connected as <span className="text-white font-medium">{accountName}</span></span>
+              </div>
+            )}
+            <button
+              onClick={handleDisconnect}
+              disabled={disconnecting}
+              className="text-xs text-slate-400 hover:text-red-400 transition-colors disabled:opacity-50"
+            >
+              {disconnecting ? "Disconnecting…" : "Disconnect"}
+            </button>
+          </div>
         </div>
       </header>
 

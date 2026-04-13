@@ -6,6 +6,7 @@ import { getValidToken } from "../lib/jobberToken";
 import { syncOrg } from "../lib/sync";
 import { groupAssets } from "../lib/groupAssets";
 import { calculateDueDates } from "../lib/calculateDueDates";
+import { deleteOrgData } from "../lib/deleteOrg";
 import { db } from "../db/client";
 import { jobberOrgs, assets, jobs, jobCustomFields, clients } from "../db/schema";
 
@@ -755,6 +756,42 @@ router.get("/jobs/:jobId/pdf", async (req: Request, res: Response) => {
   } catch (err) {
     console.error("[pdf] error:", err);
     if (!res.headersSent) res.status(500).json({ error: String(err) });
+  }
+});
+
+// ---------- POST /api/disconnect ----------
+
+router.post("/disconnect", async (req: Request, res: Response) => {
+  const { jobberAccountId } = req.body as { jobberAccountId?: string };
+
+  if (!jobberAccountId) {
+    res.status(400).json({ error: "Missing required body param: jobberAccountId" });
+    return;
+  }
+
+  try {
+    // Best-effort: call Jobber's appDisconnect mutation to revoke the OAuth tokens.
+    // We do this before deleting local data so the token is still valid when we call it.
+    const accessToken = await getValidToken(jobberAccountId).catch(() => null);
+    if (accessToken) {
+      await fetch(JOBBER_GRAPHQL_URL, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${accessToken}`,
+          "X-JOBBER-GRAPHQL-VERSION": JOBBER_API_VERSION,
+        },
+        body: JSON.stringify({ query: "mutation { appDisconnect { success } }" }),
+      }).catch((err) => console.warn("[disconnect] appDisconnect mutation failed:", err));
+    }
+
+    // Delete all local data for this org
+    await deleteOrgData(jobberAccountId);
+
+    res.json({ ok: true });
+  } catch (err) {
+    console.error("[disconnect] error:", err);
+    res.status(500).json({ error: String(err) });
   }
 });
 

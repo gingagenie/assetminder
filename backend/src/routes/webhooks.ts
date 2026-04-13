@@ -3,6 +3,7 @@ import crypto from "crypto";
 import { syncOrg } from "../lib/sync";
 import { groupAssets } from "../lib/groupAssets";
 import { calculateDueDates } from "../lib/calculateDueDates";
+import { deleteOrgData } from "../lib/deleteOrg";
 
 const router = Router();
 
@@ -47,13 +48,28 @@ router.post("/jobber", (req: Request, res: Response) => {
   const payload = JSON.parse(rawBody.toString()) as JobberWebhookPayload;
   const { topic, accountId } = payload;
 
-  if (!["JOB_CREATE", "JOB_UPDATE"].includes(topic)) {
-    res.status(200).json({ ok: true, skipped: true, topic });
+  if (!accountId) {
+    res.status(400).json({ error: "Missing accountId in payload" });
     return;
   }
 
-  if (!accountId) {
-    res.status(400).json({ error: "Missing accountId in payload" });
+  // APP_DISCONNECT — delete all org data immediately
+  if (topic === "APP_DISCONNECT") {
+    res.status(200).json({ ok: true });
+    setImmediate(async () => {
+      console.log(`[webhook] APP_DISCONNECT for accountId=${accountId} — deleting org data`);
+      try {
+        await deleteOrgData(accountId);
+        console.log(`[webhook] APP_DISCONNECT cleanup complete for ${accountId}`);
+      } catch (err) {
+        console.error(`[webhook] APP_DISCONNECT cleanup failed for ${accountId}:`, err);
+      }
+    });
+    return;
+  }
+
+  if (!["JOB_CREATE", "JOB_UPDATE"].includes(topic)) {
+    res.status(200).json({ ok: true, skipped: true, topic });
     return;
   }
 
