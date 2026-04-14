@@ -130,6 +130,8 @@ export default function Dashboard() {
   const [portalUrl, setPortalUrl] = useState<string | null>(null);
   const [generatingFor, setGeneratingFor] = useState<string | null>(null);
   const [disconnecting, setDisconnecting] = useState(false);
+  const [syncing, setSyncing] = useState(false);
+  const [syncError, setSyncError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!jobberAccountId) { navigate("/"); return; }
@@ -151,6 +153,42 @@ export default function Dashboard() {
       .catch(() => setError("Failed to load dashboard data."))
       .finally(() => setLoading(false));
   }, [jobberAccountId, navigate]);
+
+  async function handleSync() {
+    if (!jobberAccountId) return;
+    setSyncing(true);
+    setSyncError(null);
+    try {
+      await fetch(`${API}/api/sync`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ jobberAccountId }),
+      });
+      await fetch(`${API}/api/group-assets`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ jobberAccountId }),
+      });
+      await fetch(`${API}/api/calculate-due-dates`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ jobberAccountId }),
+      });
+
+      // Refresh dashboard data
+      const [assetData, clientData] = await Promise.all([
+        fetch(`${API}/api/assets?jobberAccountId=${encodeURIComponent(jobberAccountId)}`).then((r) => r.json()),
+        fetch(`${API}/api/clients?jobberAccountId=${encodeURIComponent(jobberAccountId)}`).then((r) => r.json()),
+      ]) as [{ assets: Asset[] }, { clients: Client[] }];
+      setAssets(assetData.assets);
+      setClientsList(clientData.clients);
+    } catch {
+      setSyncError("Sync failed. Please try again.");
+      setTimeout(() => setSyncError(null), 4000);
+    } finally {
+      setSyncing(false);
+    }
+  }
 
   async function handleDisconnect() {
     if (!jobberAccountId) return;
@@ -219,8 +257,21 @@ export default function Dashboard() {
               </div>
             )}
             <button
+              onClick={handleSync}
+              disabled={syncing || disconnecting}
+              className="inline-flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg bg-white/10 text-white hover:bg-white/20 transition-colors disabled:opacity-50"
+            >
+              <svg
+                className={`h-3.5 w-3.5 ${syncing ? "animate-spin" : ""}`}
+                fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}
+              >
+                <path strokeLinecap="round" strokeLinejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+              </svg>
+              {syncing ? "Syncing…" : "Sync Jobber"}
+            </button>
+            <button
               onClick={handleDisconnect}
-              disabled={disconnecting}
+              disabled={disconnecting || syncing}
               className="text-xs text-slate-400 hover:text-red-400 transition-colors disabled:opacity-50"
             >
               {disconnecting ? "Disconnecting…" : "Disconnect"}
@@ -228,6 +279,12 @@ export default function Dashboard() {
           </div>
         </div>
       </header>
+
+      {syncError && (
+        <div className="bg-red-50 border-b border-red-200 px-6 py-2 text-center">
+          <p className="text-xs text-red-600 font-medium">{syncError}</p>
+        </div>
+      )}
 
       <main className="max-w-5xl mx-auto px-6 py-10 space-y-10">
 
