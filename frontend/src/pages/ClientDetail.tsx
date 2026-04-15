@@ -133,6 +133,7 @@ export default function ClientDetail() {
                 <Link
                   key={asset.id}
                   to={`/assets/${asset.id}`}
+                  state={{ clientId: client.id, clientName: client.companyName ?? client.name }}
                   className={`flex items-center justify-between gap-4 px-5 py-4 border-l-4 ${border} hover:bg-slate-50 transition-colors`}
                 >
                   <div className="min-w-0">

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { useParams, useNavigate, Link } from "react-router-dom";
+import { useParams, useNavigate, useLocation, Link } from "react-router-dom";
 import { API } from "@/lib/api";
 import { ChevronLeft } from "lucide-react";
 
@@ -56,6 +56,8 @@ function formatDate(iso: string | null) {
 export default function AssetDetail() {
   const { assetId } = useParams<{ assetId: string }>();
   const navigate = useNavigate();
+  const location = useLocation();
+  const fromClient = (location.state as { clientId: string; clientName: string } | null) ?? null;
   const jobberAccountId = localStorage.getItem("jobberAccountId");
 
   const [asset, setAsset] = useState<AssetDetail | null>(null);
@@ -181,11 +183,11 @@ export default function AssetDetail() {
 
         {/* Back link */}
         <Link
-          to="/dashboard"
+          to={fromClient ? `/clients/${fromClient.clientId}` : "/dashboard"}
           className="inline-flex items-center gap-1 text-sm text-slate-400 hover:text-slate-600 transition-colors"
         >
           <ChevronLeft className="h-4 w-4" />
-          Back to dashboard
+          {fromClient ? `Back to ${fromClient.clientName}` : "Back to dashboard"}
         </Link>
 
         {/* Hero */}
