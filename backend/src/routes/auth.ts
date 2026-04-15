@@ -82,8 +82,6 @@ router.get("/callback", async (req: Request, res: Response) => {
     return;
   }
 
-  console.log("[callback] GraphQL response:", meBody);
-
   const meJson = JSON.parse(meBody) as {
     data?: { account?: { id: string } };
     errors?: unknown[];

@@ -40,7 +40,6 @@ router.post("/jobber", (req: Request, res: Response) => {
     digest.length !== signature.length ||
     !crypto.timingSafeEqual(Buffer.from(digest), Buffer.from(signature))
   ) {
-    console.warn(`[webhook] invalid HMAC — received="${signature}" expected="${digest}"`);
     res.status(401).json({ error: "Invalid signature" });
     return;
   }
