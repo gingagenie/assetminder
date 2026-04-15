@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useMemo } from "react";
 import { useNavigate, Link } from "react-router-dom";
 import { API } from "@/lib/api";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -10,6 +10,7 @@ interface Asset {
   id: string;
   identifier: string;
   displayName: string;
+  jobberClientId: string | null;
   lastServicedAt: string | null;
   nextDueAt: string | null;
   jobCount: number;
@@ -28,26 +29,10 @@ interface Client {
 // ---------- Helpers ----------
 
 const statusConfig = {
-  ok: {
-    label: "OK",
-    pill: "bg-green-100 text-green-700",
-    border: "border-l-green-500",
-  },
-  amber: {
-    label: "Due Soon",
-    pill: "bg-amber-100 text-amber-700",
-    border: "border-l-amber-500",
-  },
-  overdue: {
-    label: "Overdue",
-    pill: "bg-red-100 text-red-700",
-    border: "border-l-red-500",
-  },
-  unscheduled: {
-    label: "Unscheduled",
-    pill: "bg-slate-100 text-slate-500",
-    border: "border-l-slate-300",
-  },
+  ok:          { label: "OK",          pill: "bg-green-100 text-green-700", border: "border-l-green-500" },
+  amber:       { label: "Due Soon",    pill: "bg-amber-100 text-amber-700", border: "border-l-amber-500" },
+  overdue:     { label: "Overdue",     pill: "bg-red-100 text-red-700",     border: "border-l-red-500"   },
+  unscheduled: { label: "Unscheduled", pill: "bg-slate-100 text-slate-500", border: "border-l-slate-300" },
 };
 
 function formatDate(iso: string | null) {
@@ -57,15 +42,7 @@ function formatDate(iso: string | null) {
 
 // ---------- Portal link modal ----------
 
-function PortalLinkModal({
-  open,
-  url,
-  onClose,
-}: {
-  open: boolean;
-  url: string;
-  onClose: () => void;
-}) {
+function PortalLinkModal({ open, url, onClose }: { open: boolean; url: string; onClose: () => void }) {
   const [copied, setCopied] = useState(false);
 
   function handleCopy() {
@@ -94,24 +71,11 @@ function PortalLinkModal({
             onClick={handleCopy}
             className="h-10 w-10 flex items-center justify-center rounded-lg border border-slate-200 bg-white hover:bg-slate-50 transition-colors"
           >
-            {copied
-              ? <Check className="h-4 w-4 text-green-600" />
-              : <Copy className="h-4 w-4 text-slate-500" />}
+            {copied ? <Check className="h-4 w-4 text-green-600" /> : <Copy className="h-4 w-4 text-slate-500" />}
           </button>
         </div>
       </DialogContent>
     </Dialog>
-  );
-}
-
-// ---------- Section header ----------
-
-function SectionHeader({ title, count }: { title: string; count: number }) {
-  return (
-    <div className="flex items-baseline gap-2 mb-4">
-      <h2 className="text-lg font-semibold text-slate-800">{title}</h2>
-      <span className="text-sm text-slate-400">{count}</span>
-    </div>
   );
 }
 
@@ -132,56 +96,53 @@ export default function Dashboard() {
   const [disconnecting, setDisconnecting] = useState(false);
   const [syncing, setSyncing] = useState(false);
   const [syncError, setSyncError] = useState<string | null>(null);
+  const [expandedClients, setExpandedClients] = useState<Set<string>>(new Set());
 
-  useEffect(() => {
-    if (!jobberAccountId) { navigate("/"); return; }
+  // Group assets by jobberClientId for O(1) lookup per client
+  const assetsByClient = useMemo(() => {
+    const map = new Map<string, Asset[]>();
+    for (const asset of assets) {
+      if (!asset.jobberClientId) continue;
+      if (!map.has(asset.jobberClientId)) map.set(asset.jobberClientId, []);
+      map.get(asset.jobberClientId)!.push(asset);
+    }
+    return map;
+  }, [assets]);
 
-    Promise.all([
+  function toggleClient(clientId: string) {
+    setExpandedClients((prev) => {
+      const next = new Set(prev);
+      next.has(clientId) ? next.delete(clientId) : next.add(clientId);
+      return next;
+    });
+  }
+
+  async function loadDashboard() {
+    if (!jobberAccountId) return;
+    const [me, assetData, clientData] = await Promise.all([
       fetch(`${API}/api/me?jobberAccountId=${encodeURIComponent(jobberAccountId)}`).then((r) => r.json()),
       fetch(`${API}/api/assets?jobberAccountId=${encodeURIComponent(jobberAccountId)}`).then((r) => r.json()),
       fetch(`${API}/api/clients?jobberAccountId=${encodeURIComponent(jobberAccountId)}`).then((r) => r.json()),
-    ])
-      .then(([me, assetData, clientData]: [
-        { accountName: string },
-        { assets: Asset[] },
-        { clients: Client[] }
-      ]) => {
-        setAccountName(me.accountName);
-        setAssets(assetData.assets);
-        setClientsList(clientData.clients);
-      })
-      .catch(() => setError("Failed to load dashboard data."))
-      .finally(() => setLoading(false));
-  }, [jobberAccountId, navigate]);
+    ]) as [{ accountName: string }, { assets: Asset[] }, { clients: Client[] }];
+    setAccountName(me.accountName);
+    setAssets(assetData.assets);
+    setClientsList(clientData.clients);
+  }
+
+  useEffect(() => {
+    if (!jobberAccountId) { navigate("/"); return; }
+    loadDashboard().catch(() => setError("Failed to load dashboard data.")).finally(() => setLoading(false));
+  }, [jobberAccountId, navigate]); // eslint-disable-line react-hooks/exhaustive-deps
 
   async function handleSync() {
     if (!jobberAccountId) return;
     setSyncing(true);
     setSyncError(null);
     try {
-      await fetch(`${API}/api/sync`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ jobberAccountId }),
-      });
-      await fetch(`${API}/api/group-assets`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ jobberAccountId }),
-      });
-      await fetch(`${API}/api/calculate-due-dates`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ jobberAccountId }),
-      });
-
-      // Refresh dashboard data
-      const [assetData, clientData] = await Promise.all([
-        fetch(`${API}/api/assets?jobberAccountId=${encodeURIComponent(jobberAccountId)}`).then((r) => r.json()),
-        fetch(`${API}/api/clients?jobberAccountId=${encodeURIComponent(jobberAccountId)}`).then((r) => r.json()),
-      ]) as [{ assets: Asset[] }, { clients: Client[] }];
-      setAssets(assetData.assets);
-      setClientsList(clientData.clients);
+      await fetch(`${API}/api/sync`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ jobberAccountId }) });
+      await fetch(`${API}/api/group-assets`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ jobberAccountId }) });
+      await fetch(`${API}/api/calculate-due-dates`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ jobberAccountId }) });
+      await loadDashboard();
     } catch {
       setSyncError("Sync failed. Please try again.");
       setTimeout(() => setSyncError(null), 4000);
@@ -193,23 +154,17 @@ export default function Dashboard() {
   async function handleDisconnect() {
     if (!jobberAccountId) return;
     if (!window.confirm("Disconnect AssetMinder from Jobber? This will delete all synced data and revoke access. This cannot be undone.")) return;
-
     setDisconnecting(true);
     try {
-      await fetch(`${API}/api/disconnect`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ jobberAccountId }),
-      });
-    } catch {
-      // Continue with local cleanup even if the API call fails
-    } finally {
+      await fetch(`${API}/api/disconnect`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ jobberAccountId }) });
+    } catch { /* continue */ } finally {
       localStorage.removeItem("jobberAccountId");
       navigate("/");
     }
   }
 
-  async function handleSharePortal(clientId: string) {
+  async function handleSharePortal(e: React.MouseEvent, clientId: string) {
+    e.stopPropagation(); // don't toggle expand
     setGeneratingFor(clientId);
     try {
       const res = await fetch(`${API}/api/clients/${clientId}/portal-link`, {
@@ -247,13 +202,15 @@ export default function Dashboard() {
 
       {/* Nav */}
       <header style={{ backgroundColor: "#1e293b" }}>
-        <div className="max-w-5xl mx-auto px-6 py-4 flex items-center justify-between">
+        <div className="max-w-3xl mx-auto px-6 py-4 flex items-center justify-between">
           <span className="text-white font-semibold text-lg tracking-tight">AssetMinder</span>
           <div className="flex items-center gap-4">
             {accountName && (
               <div className="flex items-center gap-2">
                 <span className="h-2 w-2 rounded-full bg-green-400 shrink-0" />
-                <span className="text-slate-300 text-sm">Connected as <span className="text-white font-medium">{accountName}</span></span>
+                <span className="text-slate-300 text-sm hidden sm:block">
+                  Connected as <span className="text-white font-medium">{accountName}</span>
+                </span>
               </div>
             )}
             <button
@@ -261,10 +218,7 @@ export default function Dashboard() {
               disabled={syncing || disconnecting}
               className="inline-flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg bg-white/10 text-white hover:bg-white/20 transition-colors disabled:opacity-50"
             >
-              <svg
-                className={`h-3.5 w-3.5 ${syncing ? "animate-spin" : ""}`}
-                fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}
-              >
+              <svg className={`h-3.5 w-3.5 ${syncing ? "animate-spin" : ""}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
                 <path strokeLinecap="round" strokeLinejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
               </svg>
               {syncing ? "Syncing…" : "Sync Jobber"}
@@ -286,87 +240,112 @@ export default function Dashboard() {
         </div>
       )}
 
-      <main className="max-w-5xl mx-auto px-6 py-10 space-y-10">
+      <main className="max-w-3xl mx-auto px-6 py-10">
 
-        {/* Clients section */}
-        <section>
-          <SectionHeader title="Clients" count={clientsList.length} />
-          {clientsList.length === 0 ? (
-            <p className="text-slate-400 text-sm">No clients found. Run a sync to populate.</p>
-          ) : (
-            <div className="grid gap-3 sm:grid-cols-2">
-              {clientsList.map((client) => (
-                <div key={client.id} className="bg-white rounded-xl shadow-sm border border-slate-200 px-5 py-4 flex items-center justify-between gap-4">
-                  <div className="min-w-0">
-                    <p className="font-semibold text-slate-800 truncate">{client.companyName ?? client.name}</p>
-                    {client.email && <p className="text-xs text-slate-400 mt-0.5 truncate">{client.email}</p>}
-                  </div>
+        {/* Header */}
+        <div className="flex items-baseline gap-2 mb-6">
+          <h2 className="text-lg font-semibold text-slate-800">Clients</h2>
+          <span className="text-sm text-slate-400">{clientsList.length}</span>
+        </div>
+
+        {clientsList.length === 0 ? (
+          <p className="text-slate-400 text-sm">No clients found. Run a sync to populate.</p>
+        ) : (
+          <div className="space-y-3">
+            {clientsList.map((client) => {
+              const clientAssets = assetsByClient.get(client.jobberClientId) ?? [];
+              const isExpanded = expandedClients.has(client.id);
+              const assetCount = clientAssets.length;
+
+              return (
+                <div key={client.id} className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
+
+                  {/* Client header — click to expand */}
                   <button
-                    disabled={generatingFor === client.id}
-                    onClick={() => handleSharePortal(client.id)}
-                    className="shrink-0 text-xs font-semibold px-3 py-1.5 rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50 hover:border-slate-300 transition-colors disabled:opacity-50"
+                    onClick={() => toggleClient(client.id)}
+                    className="w-full text-left px-5 py-4 hover:bg-slate-50 transition-colors"
                   >
-                    {generatingFor === client.id ? "Generating…" : "Share Portal"}
+                    <div className="flex items-center justify-between gap-4">
+                      <div className="min-w-0">
+                        <p className="font-semibold text-slate-800 truncate">
+                          {client.companyName ?? client.name}
+                        </p>
+                        <div className="flex items-center gap-3 mt-0.5">
+                          {client.email && (
+                            <p className="text-xs text-slate-400 truncate">{client.email}</p>
+                          )}
+                          <span className="text-xs text-slate-300">·</span>
+                          <p className="text-xs text-slate-400 shrink-0">
+                            {assetCount === 0 ? "No assets" : `${assetCount} asset${assetCount !== 1 ? "s" : ""}`}
+                          </p>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-2 shrink-0">
+                        <button
+                          disabled={generatingFor === client.id}
+                          onClick={(e) => handleSharePortal(e, client.id)}
+                          className="text-xs font-semibold px-3 py-1.5 rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-100 hover:border-slate-300 transition-colors disabled:opacity-50"
+                        >
+                          {generatingFor === client.id ? "Generating…" : "Share Portal"}
+                        </button>
+                        <svg
+                          className={`h-4 w-4 text-slate-400 transition-transform duration-200 ${isExpanded ? "rotate-180" : ""}`}
+                          fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}
+                        >
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+                        </svg>
+                      </div>
+                    </div>
                   </button>
+
+                  {/* Expanded asset list */}
+                  {isExpanded && (
+                    <div className="border-t border-slate-100">
+                      {clientAssets.length === 0 ? (
+                        <p className="px-5 py-4 text-sm text-slate-400">No assets tracked for this client.</p>
+                      ) : (
+                        <div className="divide-y divide-slate-100">
+                          {clientAssets.map((asset) => {
+                            const { label, pill, border } = statusConfig[asset.status];
+                            return (
+                              <Link
+                                key={asset.id}
+                                to={`/assets/${asset.id}`}
+                                className={`flex items-center justify-between gap-4 px-5 py-4 border-l-4 ${border} hover:bg-slate-50 transition-colors`}
+                              >
+                                <div className="min-w-0">
+                                  <p className="font-semibold text-slate-800 text-sm">{asset.displayName}</p>
+                                  <div className="flex items-center gap-4 mt-1.5">
+                                    <span className="text-xs text-slate-400">
+                                      Last: <span className="text-slate-600">{formatDate(asset.lastServicedAt)}</span>
+                                    </span>
+                                    <span className="text-xs text-slate-400">
+                                      Due: <span className="text-slate-600">{formatDate(asset.nextDueAt)}</span>
+                                    </span>
+                                    <span className="text-xs text-slate-400">
+                                      {asset.jobCount} job{asset.jobCount !== 1 ? "s" : ""}
+                                    </span>
+                                  </div>
+                                </div>
+                                <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-semibold shrink-0 ${pill}`}>
+                                  {label}
+                                </span>
+                              </Link>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
+                  )}
                 </div>
-              ))}
-            </div>
-          )}
-        </section>
-
-        {/* Assets section */}
-        <section>
-          <SectionHeader title="Assets" count={assets.length} />
-          {assets.length === 0 ? (
-            <p className="text-slate-400 text-sm">No assets found. Run a sync and group assets to populate this list.</p>
-          ) : (
-            <div className="space-y-3">
-              {assets.map((asset) => {
-                const { label, pill, border } = statusConfig[asset.status];
-                return (
-                  <Link
-                    key={asset.id}
-                    to={`/assets/${asset.id}`}
-                    className={`block bg-white rounded-xl shadow-sm border border-slate-200 border-l-4 ${border} px-6 py-5 hover:shadow-md transition-shadow`}
-                  >
-                    <div className="flex items-start justify-between gap-4 mb-4">
-                      <div>
-                        <p className="font-bold text-slate-800 text-base">{asset.displayName}</p>
-                        <p className="text-slate-400 text-xs mt-0.5">{asset.identifier}</p>
-                      </div>
-                      <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-semibold shrink-0 ${pill}`}>
-                        {label}
-                      </span>
-                    </div>
-                    <div className="grid grid-cols-3 gap-4">
-                      <div>
-                        <p className="text-slate-400 text-xs mb-0.5">Last serviced</p>
-                        <p className="text-slate-700 text-sm font-medium">{formatDate(asset.lastServicedAt)}</p>
-                      </div>
-                      <div>
-                        <p className="text-slate-400 text-xs mb-0.5">Next due</p>
-                        <p className="text-slate-700 text-sm font-medium">{formatDate(asset.nextDueAt)}</p>
-                      </div>
-                      <div>
-                        <p className="text-slate-400 text-xs mb-0.5">Service records</p>
-                        <p className="text-slate-700 text-sm font-medium">{asset.jobCount}</p>
-                      </div>
-                    </div>
-                  </Link>
-                );
-              })}
-            </div>
-          )}
-        </section>
-
+              );
+            })}
+          </div>
+        )}
       </main>
 
       {portalUrl && (
-        <PortalLinkModal
-          open={!!portalUrl}
-          url={portalUrl}
-          onClose={() => setPortalUrl(null)}
-        />
+        <PortalLinkModal open={!!portalUrl} url={portalUrl} onClose={() => setPortalUrl(null)} />
       )}
     </div>
   );
