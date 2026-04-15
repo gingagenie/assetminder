@@ -1,21 +1,10 @@
-import { useEffect, useState, useMemo } from "react";
+import { useEffect, useState } from "react";
 import { useNavigate, Link } from "react-router-dom";
 import { API } from "@/lib/api";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Copy, Check } from "lucide-react";
 
 // ---------- Types ----------
-
-interface Asset {
-  id: string;
-  identifier: string;
-  displayName: string;
-  jobberClientId: string | null;
-  lastServicedAt: string | null;
-  nextDueAt: string | null;
-  jobCount: number;
-  status: "ok" | "amber" | "overdue" | "unscheduled";
-}
 
 interface Client {
   id: string;
@@ -24,20 +13,7 @@ interface Client {
   email: string | null;
   jobberClientId: string;
   portalToken: string | null;
-}
-
-// ---------- Helpers ----------
-
-const statusConfig = {
-  ok:          { label: "OK",          pill: "bg-green-100 text-green-700", border: "border-l-green-500" },
-  amber:       { label: "Due Soon",    pill: "bg-amber-100 text-amber-700", border: "border-l-amber-500" },
-  overdue:     { label: "Overdue",     pill: "bg-red-100 text-red-700",     border: "border-l-red-500"   },
-  unscheduled: { label: "Unscheduled", pill: "bg-slate-100 text-slate-500", border: "border-l-slate-300" },
-};
-
-function formatDate(iso: string | null) {
-  if (!iso) return "—";
-  return new Date(iso).toLocaleDateString(undefined, { dateStyle: "medium" });
+  assetCount?: number;
 }
 
 // ---------- Portal link modal ----------
@@ -86,7 +62,6 @@ export default function Dashboard() {
   const jobberAccountId = localStorage.getItem("jobberAccountId");
 
   const [accountName, setAccountName] = useState<string | null>(null);
-  const [assets, setAssets] = useState<Asset[]>([]);
   const [clientsList, setClientsList] = useState<Client[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -96,37 +71,28 @@ export default function Dashboard() {
   const [disconnecting, setDisconnecting] = useState(false);
   const [syncing, setSyncing] = useState(false);
   const [syncError, setSyncError] = useState<string | null>(null);
-  const [expandedClients, setExpandedClients] = useState<Set<string>>(new Set());
-
-  // Group assets by jobberClientId for O(1) lookup per client
-  const assetsByClient = useMemo(() => {
-    const map = new Map<string, Asset[]>();
-    for (const asset of assets) {
-      if (!asset.jobberClientId) continue;
-      if (!map.has(asset.jobberClientId)) map.set(asset.jobberClientId, []);
-      map.get(asset.jobberClientId)!.push(asset);
-    }
-    return map;
-  }, [assets]);
-
-  function toggleClient(clientId: string) {
-    setExpandedClients((prev) => {
-      const next = new Set(prev);
-      next.has(clientId) ? next.delete(clientId) : next.add(clientId);
-      return next;
-    });
-  }
 
   async function loadDashboard() {
     if (!jobberAccountId) return;
-    const [me, assetData, clientData] = await Promise.all([
+    const [me, clientData, assetData] = await Promise.all([
       fetch(`${API}/api/me?jobberAccountId=${encodeURIComponent(jobberAccountId)}`).then((r) => r.json()),
-      fetch(`${API}/api/assets?jobberAccountId=${encodeURIComponent(jobberAccountId)}`).then((r) => r.json()),
       fetch(`${API}/api/clients?jobberAccountId=${encodeURIComponent(jobberAccountId)}`).then((r) => r.json()),
-    ]) as [{ accountName: string }, { assets: Asset[] }, { clients: Client[] }];
+      fetch(`${API}/api/assets?jobberAccountId=${encodeURIComponent(jobberAccountId)}`).then((r) => r.json()),
+    ]) as [{ accountName: string }, { clients: Client[] }, { assets: { jobberClientId: string | null }[] }];
+
+    // Count assets per client
+    const countMap = new Map<string, number>();
+    for (const asset of assetData.assets) {
+      if (!asset.jobberClientId) continue;
+      countMap.set(asset.jobberClientId, (countMap.get(asset.jobberClientId) ?? 0) + 1);
+    }
+    const clients = clientData.clients.map((c) => ({
+      ...c,
+      assetCount: countMap.get(c.jobberClientId) ?? 0,
+    }));
+
     setAccountName(me.accountName);
-    setAssets(assetData.assets);
-    setClientsList(clientData.clients);
+    setClientsList(clients);
   }
 
   useEffect(() => {
@@ -164,7 +130,7 @@ export default function Dashboard() {
   }
 
   async function handleSharePortal(e: React.MouseEvent, clientId: string) {
-    e.stopPropagation(); // don't toggle expand
+    e.preventDefault(); // don't navigate to client detail
     setGeneratingFor(clientId);
     try {
       const res = await fetch(`${API}/api/clients/${clientId}/portal-link`, {
@@ -252,94 +218,47 @@ export default function Dashboard() {
           <p className="text-slate-400 text-sm">No clients found. Run a sync to populate.</p>
         ) : (
           <div className="space-y-3">
-            {clientsList.map((client) => {
-              const clientAssets = assetsByClient.get(client.jobberClientId) ?? [];
-              const isExpanded = expandedClients.has(client.id);
-              const assetCount = clientAssets.length;
-
-              return (
-                <div key={client.id} className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
-
-                  {/* Client header — click to expand */}
-                  <button
-                    onClick={() => toggleClient(client.id)}
-                    className="w-full text-left px-5 py-4 hover:bg-slate-50 transition-colors"
-                  >
-                    <div className="flex items-center justify-between gap-4">
-                      <div className="min-w-0">
-                        <p className="font-semibold text-slate-800 truncate">
-                          {client.companyName ?? client.name}
-                        </p>
-                        <div className="flex items-center gap-3 mt-0.5">
-                          {client.email && (
-                            <p className="text-xs text-slate-400 truncate">{client.email}</p>
-                          )}
-                          <span className="text-xs text-slate-300">·</span>
-                          <p className="text-xs text-slate-400 shrink-0">
-                            {assetCount === 0 ? "No assets" : `${assetCount} asset${assetCount !== 1 ? "s" : ""}`}
-                          </p>
-                        </div>
-                      </div>
-                      <div className="flex items-center gap-2 shrink-0">
-                        <button
-                          disabled={generatingFor === client.id}
-                          onClick={(e) => handleSharePortal(e, client.id)}
-                          className="text-xs font-semibold px-3 py-1.5 rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-100 hover:border-slate-300 transition-colors disabled:opacity-50"
-                        >
-                          {generatingFor === client.id ? "Generating…" : "Share Portal"}
-                        </button>
-                        <svg
-                          className={`h-4 w-4 text-slate-400 transition-transform duration-200 ${isExpanded ? "rotate-180" : ""}`}
-                          fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}
-                        >
-                          <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
-                        </svg>
-                      </div>
-                    </div>
-                  </button>
-
-                  {/* Expanded asset list */}
-                  {isExpanded && (
-                    <div className="border-t border-slate-100">
-                      {clientAssets.length === 0 ? (
-                        <p className="px-5 py-4 text-sm text-slate-400">No assets tracked for this client.</p>
-                      ) : (
-                        <div className="divide-y divide-slate-100">
-                          {clientAssets.map((asset) => {
-                            const { label, pill, border } = statusConfig[asset.status];
-                            return (
-                              <Link
-                                key={asset.id}
-                                to={`/assets/${asset.id}`}
-                                className={`flex items-center justify-between gap-4 px-5 py-4 border-l-4 ${border} hover:bg-slate-50 transition-colors`}
-                              >
-                                <div className="min-w-0">
-                                  <p className="font-semibold text-slate-800 text-sm">{asset.displayName}</p>
-                                  <div className="flex items-center gap-4 mt-1.5">
-                                    <span className="text-xs text-slate-400">
-                                      Last: <span className="text-slate-600">{formatDate(asset.lastServicedAt)}</span>
-                                    </span>
-                                    <span className="text-xs text-slate-400">
-                                      Due: <span className="text-slate-600">{formatDate(asset.nextDueAt)}</span>
-                                    </span>
-                                    <span className="text-xs text-slate-400">
-                                      {asset.jobCount} job{asset.jobCount !== 1 ? "s" : ""}
-                                    </span>
-                                  </div>
-                                </div>
-                                <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-semibold shrink-0 ${pill}`}>
-                                  {label}
-                                </span>
-                              </Link>
-                            );
-                          })}
-                        </div>
+            {clientsList.map((client) => (
+              <Link
+                key={client.id}
+                to={`/clients/${client.id}`}
+                className="block bg-white rounded-xl shadow-sm border border-slate-200 hover:border-slate-300 hover:shadow transition-all overflow-hidden"
+              >
+                <div className="px-5 py-4 flex items-center justify-between gap-4">
+                  <div className="min-w-0">
+                    <p className="font-semibold text-slate-800 truncate">
+                      {client.companyName ?? client.name}
+                    </p>
+                    <div className="flex items-center gap-3 mt-0.5">
+                      {client.email && (
+                        <p className="text-xs text-slate-400 truncate">{client.email}</p>
                       )}
+                      <span className="text-xs text-slate-300">·</span>
+                      <p className="text-xs text-slate-400 shrink-0">
+                        {(client.assetCount ?? 0) === 0
+                          ? "No assets"
+                          : `${client.assetCount} asset${client.assetCount !== 1 ? "s" : ""}`}
+                      </p>
                     </div>
-                  )}
+                  </div>
+                  <div className="flex items-center gap-2 shrink-0">
+                    <button
+                      disabled={generatingFor === client.id}
+                      onClick={(e) => handleSharePortal(e, client.id)}
+                      className="text-xs font-semibold px-3 py-1.5 rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-100 hover:border-slate-300 transition-colors disabled:opacity-50"
+                    >
+                      {generatingFor === client.id ? "Generating…" : "Share Portal"}
+                    </button>
+                    <svg
+                      className="h-4 w-4 text-slate-400"
+                      fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}
+                    >
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
+                    </svg>
+                  </div>
                 </div>
-              );
-            })}
+              </Link>
+            ))}
           </div>
         )}
       </main>
