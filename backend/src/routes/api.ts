@@ -644,15 +644,9 @@ router.get("/jobs/:jobId/pdf", async (req: Request, res: Response) => {
       : "—";
     const displayFields = customFields.filter((f) => f.fieldLabel !== assetField);
 
-    const dateForDisplay = job.completedAt ?? job.createdAt;
-    const completedStr = new Date(dateForDisplay).toLocaleDateString("en-GB", { dateStyle: "medium" });
-    const dateLabel = job.completedAt ? "DATE COMPLETED" : "DATE CREATED";
-
-    const statusLabels: Record<string, string> = {
-      active: "Active", late: "Active (Late)", completed: "Completed",
-      archived: "Archived", requires_invoicing: "Requires Invoicing",
-    };
-    const statusStr = statusLabels[job.jobStatus.toLowerCase()] ?? job.jobStatus.toLowerCase().replace(/_/g, " ");
+    const completedStr = job.completedAt
+      ? new Date(job.completedAt).toLocaleDateString("en-GB", { dateStyle: "medium" })
+      : "—";
 
     // ── Build PDF ────────────────────────────────────────────────
     const doc = new PDFDocument({ margin: 50, size: "A4" });
@@ -691,12 +685,11 @@ router.get("/jobs/:jobId/pdf", async (req: Request, res: Response) => {
     doc.moveTo(L, y).lineTo(R, y).lineWidth(0.5).strokeColor(rule).stroke();
     y += 16;
 
-    // Job details — 4 columns: number, date, technician, status
+    // Job details — 3 columns: number, date completed, technician
     const details = [
       { label: "JOB NUMBER", value: job.jobNumber ? `#${job.jobNumber}` : "—" },
-      { label: dateLabel, value: completedStr },
+      { label: "DATE COMPLETED", value: completedStr },
       { label: "TECHNICIAN", value: technicianName ?? "—" },
-      { label: "STATUS", value: statusStr },
     ];
     const colW = W / details.length;
     details.forEach((d, i) => {
