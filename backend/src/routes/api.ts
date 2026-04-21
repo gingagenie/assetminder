@@ -621,12 +621,12 @@ async function fetchJobVisitData(accessToken: string, jobberJobId: string): Prom
   }
 }
 
-// Fetches line items separately so a failure here cannot affect technician
-// or visit instructions. Notes removed — Jobber returns JobNoteUnion which
-// requires inline fragments; will add back once union types are confirmed.
+// Fetches job-level notes (JobNote union type) and line items separately
+// so a failure here cannot affect technician or visit instructions.
 async function fetchJobExtras(accessToken: string, jobberJobId: string): Promise<{ jobNotes: string | null; lineItems: { name: string; quantity: string }[] }> {
   const query = `{
     job(id: ${JSON.stringify(jobberJobId)}) {
+      notes { nodes { ... on JobNote { content } } }
       lineItems { nodes { name quantity } }
     }
   }`;
@@ -646,6 +646,7 @@ async function fetchJobExtras(accessToken: string, jobberJobId: string): Promise
     const json = JSON.parse(text) as {
       data?: {
         job?: {
+          notes?: { nodes: { content?: string }[] };
           lineItems?: { nodes: { name: string; quantity: number }[] };
         };
       };
@@ -656,11 +657,18 @@ async function fetchJobExtras(accessToken: string, jobberJobId: string): Promise
       console.error(`[extras] GraphQL errors:`, json.errors.map(e => e.message).join(", "));
     }
 
-    const lineItems = (json.data?.job?.lineItems?.nodes ?? [])
+    const job = json.data?.job;
+
+    const jobNotes = (job?.notes?.nodes ?? [])
+      .map((n) => n.content?.trim())
+      .filter(Boolean)
+      .join("\n\n") || null;
+
+    const lineItems = (job?.lineItems?.nodes ?? [])
       .filter((li) => li.name)
       .map((li) => ({ name: li.name, quantity: String(li.quantity) }));
 
-    return { jobNotes: null, lineItems };
+    return { jobNotes, lineItems };
   } catch (err) {
     console.error(`[extras] FAILED for jobberJobId=${jobberJobId}:`, String(err));
     return { jobNotes: null, lineItems: [] };
