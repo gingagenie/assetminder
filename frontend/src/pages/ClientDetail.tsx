@@ -1,7 +1,8 @@
-import { useEffect, useState, useMemo } from "react";
+import { useEffect, useState } from "react";
 import { useParams, useNavigate, Link } from "react-router-dom";
 import { API } from "@/lib/api";
 import { ChevronLeft } from "lucide-react";
+import { Nav } from "@/components/Nav";
 
 // ---------- Types ----------
 
@@ -51,25 +52,24 @@ export default function ClientDetail() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
+  async function loadData() {
+    if (!jobberAccountId || !clientId) return;
+    const [clientData, assetData] = await Promise.all([
+      fetch(`${API}/api/clients?jobberAccountId=${encodeURIComponent(jobberAccountId)}`).then((r) => r.json()),
+      fetch(`${API}/api/assets?jobberAccountId=${encodeURIComponent(jobberAccountId)}`).then((r) => r.json()),
+    ]);
+    const found = (clientData.clients as Client[]).find((c) => c.id === clientId) ?? null;
+    setClient(found);
+    setAssets(found
+      ? (assetData.assets as Asset[]).filter((a) => a.jobberClientId === found.jobberClientId)
+      : []);
+  }
+
   useEffect(() => {
     if (!jobberAccountId) { navigate("/"); return; }
     if (!clientId) { navigate("/dashboard"); return; }
-
-    Promise.all([
-      fetch(`${API}/api/clients?jobberAccountId=${encodeURIComponent(jobberAccountId)}`).then((r) => r.json()),
-      fetch(`${API}/api/assets?jobberAccountId=${encodeURIComponent(jobberAccountId)}`).then((r) => r.json()),
-    ])
-      .then(([clientData, assetData]) => {
-        const found = (clientData.clients as Client[]).find((c) => c.id === clientId) ?? null;
-        setClient(found);
-        const clientAssets = found
-          ? (assetData.assets as Asset[]).filter((a) => a.jobberClientId === found.jobberClientId)
-          : [];
-        setAssets(clientAssets);
-      })
-      .catch(() => setError("Failed to load client data."))
-      .finally(() => setLoading(false));
-  }, [clientId, jobberAccountId, navigate]);
+    loadData().catch(() => setError("Failed to load client data.")).finally(() => setLoading(false));
+  }, [clientId, jobberAccountId, navigate]); // eslint-disable-line react-hooks/exhaustive-deps
 
   if (loading) {
     return (
@@ -90,22 +90,24 @@ export default function ClientDetail() {
   return (
     <div style={{ fontFamily: "Inter, sans-serif", backgroundColor: "#f8fafc" }} className="min-h-screen">
 
-      {/* Nav */}
-      <header style={{ backgroundColor: "#1e293b" }}>
-        <div className="max-w-3xl mx-auto px-6 py-4 flex items-center gap-3">
-          <button
-            onClick={() => navigate("/dashboard")}
-            className="flex items-center gap-1 text-slate-400 hover:text-white transition-colors"
-          >
-            <ChevronLeft className="h-4 w-4" />
-            <span className="text-sm">Clients</span>
-          </button>
-          <span className="text-slate-600 text-sm">/</span>
-          <span className="text-white font-semibold text-sm truncate">
-            {client.companyName ?? client.name}
-          </span>
-        </div>
-      </header>
+      <Nav
+        left={
+          <>
+            <button
+              onClick={() => navigate("/dashboard")}
+              className="flex items-center gap-1 text-slate-400 hover:text-white transition-colors shrink-0"
+            >
+              <ChevronLeft className="h-4 w-4" />
+              <span className="text-sm">Clients</span>
+            </button>
+            <span className="text-slate-600 text-sm">/</span>
+            <span className="text-white font-semibold text-sm truncate">
+              {client.companyName ?? client.name}
+            </span>
+          </>
+        }
+        onSyncComplete={loadData}
+      />
 
       <main className="max-w-3xl mx-auto px-6 py-10">
 

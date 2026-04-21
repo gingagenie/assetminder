@@ -3,6 +3,7 @@ import { useNavigate, Link } from "react-router-dom";
 import { API } from "@/lib/api";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Copy, Check } from "lucide-react";
+import { Nav } from "@/components/Nav";
 
 // ---------- Types ----------
 
@@ -65,12 +66,9 @@ export default function Dashboard() {
   const [clientsList, setClientsList] = useState<Client[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-
   const [portalUrl, setPortalUrl] = useState<string | null>(null);
   const [generatingFor, setGeneratingFor] = useState<string | null>(null);
   const [disconnecting, setDisconnecting] = useState(false);
-  const [syncing, setSyncing] = useState(false);
-  const [syncError, setSyncError] = useState<string | null>(null);
 
   async function loadDashboard() {
     if (!jobberAccountId) return;
@@ -80,42 +78,22 @@ export default function Dashboard() {
       fetch(`${API}/api/assets?jobberAccountId=${encodeURIComponent(jobberAccountId)}`).then((r) => r.json()),
     ]) as [{ accountName: string }, { clients: Client[] }, { assets: { jobberClientId: string | null }[] }];
 
-    // Count assets per client
     const countMap = new Map<string, number>();
     for (const asset of assetData.assets) {
       if (!asset.jobberClientId) continue;
       countMap.set(asset.jobberClientId, (countMap.get(asset.jobberClientId) ?? 0) + 1);
     }
-    const clients = clientData.clients.map((c) => ({
+    setAccountName(me.accountName);
+    setClientsList(clientData.clients.map((c) => ({
       ...c,
       assetCount: countMap.get(c.jobberClientId) ?? 0,
-    }));
-
-    setAccountName(me.accountName);
-    setClientsList(clients);
+    })));
   }
 
   useEffect(() => {
     if (!jobberAccountId) { navigate("/"); return; }
     loadDashboard().catch(() => setError("Failed to load dashboard data.")).finally(() => setLoading(false));
   }, [jobberAccountId, navigate]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  async function handleSync() {
-    if (!jobberAccountId) return;
-    setSyncing(true);
-    setSyncError(null);
-    try {
-      await fetch(`${API}/api/sync`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ jobberAccountId }) });
-      await fetch(`${API}/api/group-assets`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ jobberAccountId }) });
-      await fetch(`${API}/api/calculate-due-dates`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ jobberAccountId }) });
-      await loadDashboard();
-    } catch {
-      setSyncError("Sync failed. Please try again.");
-      setTimeout(() => setSyncError(null), 4000);
-    } finally {
-      setSyncing(false);
-    }
-  }
 
   async function handleDisconnect() {
     if (!jobberAccountId) return;
@@ -130,7 +108,7 @@ export default function Dashboard() {
   }
 
   async function handleSharePortal(e: React.MouseEvent, clientId: string) {
-    e.preventDefault(); // don't navigate to client detail
+    e.preventDefault();
     setGeneratingFor(clientId);
     try {
       const res = await fetch(`${API}/api/clients/${clientId}/portal-link`, {
@@ -166,11 +144,12 @@ export default function Dashboard() {
   return (
     <div style={{ fontFamily: "Inter, sans-serif", backgroundColor: "#f8fafc" }} className="min-h-screen">
 
-      {/* Nav */}
-      <header style={{ backgroundColor: "#1e293b" }}>
-        <div className="max-w-3xl mx-auto px-6 py-4 flex items-center justify-between">
+      <Nav
+        left={
           <span className="text-white font-semibold text-lg tracking-tight">AssetMinder</span>
-          <div className="flex items-center gap-4">
+        }
+        right={
+          <>
             {accountName && (
               <div className="flex items-center gap-2">
                 <span className="h-2 w-2 rounded-full bg-green-400 shrink-0" />
@@ -180,35 +159,19 @@ export default function Dashboard() {
               </div>
             )}
             <button
-              onClick={handleSync}
-              disabled={syncing || disconnecting}
-              className="inline-flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg bg-white/10 text-white hover:bg-white/20 transition-colors disabled:opacity-50"
-            >
-              <svg className={`h-3.5 w-3.5 ${syncing ? "animate-spin" : ""}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-              </svg>
-              {syncing ? "Syncing…" : "Sync Jobber"}
-            </button>
-            <button
               onClick={handleDisconnect}
-              disabled={disconnecting || syncing}
+              disabled={disconnecting}
               className="text-xs text-slate-400 hover:text-red-400 transition-colors disabled:opacity-50"
             >
               {disconnecting ? "Disconnecting…" : "Disconnect"}
             </button>
-          </div>
-        </div>
-      </header>
-
-      {syncError && (
-        <div className="bg-red-50 border-b border-red-200 px-6 py-2 text-center">
-          <p className="text-xs text-red-600 font-medium">{syncError}</p>
-        </div>
-      )}
+          </>
+        }
+        onSyncComplete={loadDashboard}
+      />
 
       <main className="max-w-3xl mx-auto px-6 py-10">
 
-        {/* Header */}
         <div className="flex items-baseline gap-2 mb-6">
           <h2 className="text-lg font-semibold text-slate-800">Clients</h2>
           <span className="text-sm text-slate-400">{clientsList.length}</span>

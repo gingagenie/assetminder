@@ -1,7 +1,8 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { useParams, useNavigate, useLocation, Link } from "react-router-dom";
 import { API } from "@/lib/api";
 import { ChevronLeft } from "lucide-react";
+import { Nav } from "@/components/Nav";
 
 // ---------- Types ----------
 
@@ -95,23 +96,18 @@ export default function AssetDetail() {
     }
   }
 
-  const ran = useRef(false);
+  async function loadData() {
+    const res = await fetch(`${API}/api/assets/${assetId}/jobs`);
+    const data = (await res.json()) as { asset: AssetDetail; jobs: JobEntry[] };
+    setAsset(data.asset);
+    setJobsList(data.jobs);
+    setIntervalInput(String(data.asset.serviceIntervalDays ?? ""));
+  }
 
   useEffect(() => {
     if (!jobberAccountId) { navigate("/"); return; }
-    if (ran.current) return;
-    ran.current = true;
-
-    fetch(`${API}/api/assets/${assetId}/jobs`)
-      .then((r) => r.json())
-      .then((data: { asset: AssetDetail; jobs: JobEntry[] }) => {
-        setAsset(data.asset);
-        setJobsList(data.jobs);
-        setIntervalInput(String(data.asset.serviceIntervalDays ?? ""));
-      })
-      .catch(() => setError("Failed to load asset."))
-      .finally(() => setLoading(false));
-  }, [assetId, jobberAccountId, navigate]);
+    loadData().catch(() => setError("Failed to load asset.")).finally(() => setLoading(false));
+  }, [assetId, jobberAccountId, navigate]); // eslint-disable-line react-hooks/exhaustive-deps
 
   async function handleSaveInterval() {
     if (!asset || !jobberAccountId) return;
@@ -169,15 +165,13 @@ export default function AssetDetail() {
   return (
     <div style={{ fontFamily: "Inter, sans-serif", backgroundColor: "#f8fafc" }} className="min-h-screen">
 
-      {/* Nav */}
-      <header style={{ backgroundColor: "#1e293b" }}>
-        <div className="max-w-3xl mx-auto px-6 py-4 flex items-center justify-between">
-          <span className="text-white font-semibold text-lg tracking-tight">AssetMinder</span>
-          {asset.clientName && (
-            <span className="text-slate-400 text-sm font-medium">{asset.clientName}</span>
-          )}
-        </div>
-      </header>
+      <Nav
+        left={<span className="text-white font-semibold text-lg tracking-tight">AssetMinder</span>}
+        right={asset.clientName ? (
+          <span className="text-slate-400 text-sm font-medium">{asset.clientName}</span>
+        ) : undefined}
+        onSyncComplete={loadData}
+      />
 
       <main className="max-w-3xl mx-auto px-6 py-10 space-y-8">
 
