@@ -545,9 +545,14 @@ router.get("/jobs/:jobId/notes", async (req: Request, res: Response) => {
     if (!org) { res.status(404).json({ error: "Org not found" }); return; }
 
     const accessToken = await getValidToken(org.jobberAccountId);
-    const visitData = await fetchJobVisitData(accessToken, job.jobberJobId);
+    const [{ workNotes: visitNotes, technicianName }, { jobNotes }] = await Promise.all([
+      fetchJobVisitData(accessToken, job.jobberJobId),
+      fetchJobExtras(accessToken, job.jobberJobId),
+    ]);
+    const noteParts = [visitNotes, jobNotes].filter(Boolean);
+    const workNotes = noteParts.length > 0 ? noteParts.join("\n\n") : null;
 
-    res.json(visitData);
+    res.json({ workNotes, technicianName });
   } catch (err) {
     console.error("[job-notes] error:", err);
     res.status(500).json({ error: String(err) });
@@ -556,23 +561,16 @@ router.get("/jobs/:jobId/notes", async (req: Request, res: Response) => {
 
 // ---------- helper: fetch first visit's work notes + technician from Jobber ----------
 
-async function fetchJobVisitData(accessToken: string, jobberJobId: string): Promise<{ workNotes: string | null; technicianName: string | null; lineItems: { name: string; quantity: string }[] }> {
-  // Fetch visit instructions, job-level notes, technician, and line items in one query
+// Fetches visit instructions and technician — this query was confirmed working.
+// Kept deliberately narrow so a schema change elsewhere can't break technician.
+async function fetchJobVisitData(accessToken: string, jobberJobId: string): Promise<{ workNotes: string | null; technicianName: string | null }> {
   const query = `{
     job(id: ${JSON.stringify(jobberJobId)}) {
-      notes {
-        nodes { content }
-      }
-      lineItems {
-        nodes { name quantity }
-      }
       visits(first: 1) {
         nodes {
           instructions
           assignedUsers {
-            nodes {
-              name { full }
-            }
+            nodes { name { full } }
           }
         }
       }
@@ -594,8 +592,6 @@ async function fetchJobVisitData(accessToken: string, jobberJobId: string): Prom
     const json = JSON.parse(text) as {
       data?: {
         job?: {
-          notes?: { nodes: { content: string }[] };
-          lineItems?: { nodes: { name: string; quantity: number }[] };
           visits?: {
             nodes: {
               instructions: string | null;
@@ -609,33 +605,73 @@ async function fetchJobVisitData(accessToken: string, jobberJobId: string): Prom
 
     if (json.errors?.length) {
       console.error(`[visit] GraphQL errors:`, json.errors.map(e => e.message).join(", "));
-      return { workNotes: null, technicianName: null, lineItems: [] };
+      return { workNotes: null, technicianName: null };
+    }
+
+    const visit = json.data?.job?.visits?.nodes?.[0];
+    if (!visit) return { workNotes: null, technicianName: null };
+
+    return {
+      workNotes: visit.instructions?.trim() || null,
+      technicianName: visit.assignedUsers?.nodes?.[0]?.name?.full ?? null,
+    };
+  } catch (err) {
+    console.error(`[visit] FAILED for jobberJobId=${jobberJobId}:`, String(err));
+    return { workNotes: null, technicianName: null };
+  }
+}
+
+// Fetches job-level notes and line items separately so a failure here
+// cannot affect technician or visit instructions.
+async function fetchJobExtras(accessToken: string, jobberJobId: string): Promise<{ jobNotes: string | null; lineItems: { name: string; quantity: string }[] }> {
+  const query = `{
+    job(id: ${JSON.stringify(jobberJobId)}) {
+      notes { nodes { content } }
+      lineItems { nodes { name quantity } }
+    }
+  }`;
+
+  try {
+    const res = await fetch(JOBBER_GRAPHQL_URL, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${accessToken}`,
+        "X-JOBBER-GRAPHQL-VERSION": JOBBER_API_VERSION,
+      },
+      body: JSON.stringify({ query }),
+    });
+
+    const text = await res.text();
+    const json = JSON.parse(text) as {
+      data?: {
+        job?: {
+          notes?: { nodes: { content: string }[] };
+          lineItems?: { nodes: { name: string; quantity: number }[] };
+        };
+      };
+      errors?: { message: string }[];
+    };
+
+    if (json.errors?.length) {
+      console.error(`[extras] GraphQL errors:`, json.errors.map(e => e.message).join(", "));
+      return { jobNotes: null, lineItems: [] };
     }
 
     const job = json.data?.job;
-    if (!job) return { workNotes: null, technicianName: null, lineItems: [] };
-
-    const visit = job.visits?.nodes?.[0];
-    const visitInstructions = visit?.instructions?.trim() || null;
-
-    const jobNotes = job.notes?.nodes
+    const jobNotes = job?.notes?.nodes
       .map((n) => n.content?.trim())
       .filter(Boolean)
       .join("\n\n") || null;
 
-    const parts = [visitInstructions, jobNotes].filter(Boolean);
-    const workNotes = parts.length > 0 ? parts.join("\n\n") : null;
-
-    const technicianName = visit?.assignedUsers?.nodes?.[0]?.name?.full ?? null;
-
-    const lineItems = (job.lineItems?.nodes ?? [])
+    const lineItems = (job?.lineItems?.nodes ?? [])
       .filter((li) => li.name)
       .map((li) => ({ name: li.name, quantity: String(li.quantity) }));
 
-    return { workNotes, technicianName, lineItems };
+    return { jobNotes, lineItems };
   } catch (err) {
-    console.error(`[visit] FAILED for jobberJobId=${jobberJobId}:`, String(err));
-    return { workNotes: null, technicianName: null, lineItems: [] };
+    console.error(`[extras] FAILED for jobberJobId=${jobberJobId}:`, String(err));
+    return { jobNotes: null, lineItems: [] };
   }
 }
 
@@ -662,9 +698,14 @@ router.get("/jobs/:jobId/pdf", async (req: Request, res: Response) => {
       if (client) clientName = client.companyName ?? client.name;
     }
 
-    // Live data from Jobber: work notes, technician, line items
+    // Live data from Jobber — two separate queries so extras can't break technician
     const accessToken = await getValidToken(org.jobberAccountId);
-    const { workNotes, technicianName, lineItems } = await fetchJobVisitData(accessToken, job.jobberJobId);
+    const [{ workNotes: visitNotes, technicianName }, { jobNotes, lineItems }] = await Promise.all([
+      fetchJobVisitData(accessToken, job.jobberJobId),
+      fetchJobExtras(accessToken, job.jobberJobId),
+    ]);
+    const noteParts = [visitNotes, jobNotes].filter(Boolean);
+    const workNotes = noteParts.length > 0 ? noteParts.join("\n\n") : null;
 
     // Custom fields from DB
     const customFields = await db.select().from(jobCustomFields).where(eq(jobCustomFields.jobId, jobId));
