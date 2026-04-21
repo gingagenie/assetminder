@@ -1,7 +1,7 @@
 import crypto from "crypto";
 import { db } from "../db/client";
-import { jobberOrgs, clients, jobs, jobCustomFields, jobLineItems } from "../db/schema";
-import { eq, inArray } from "drizzle-orm";
+import { jobberOrgs, clients, jobs, jobCustomFields } from "../db/schema";
+import { eq } from "drizzle-orm";
 import { getValidToken } from "./jobberToken";
 
 const JOBBER_GRAPHQL_URL = "https://api.getjobber.com/api/graphql";
@@ -68,12 +68,6 @@ interface JobberCustomField {
   valueTrueFalse?: boolean;
 }
 
-interface JobberLineItem {
-  name: string;
-  quantity: number;
-  unitPrice: number;
-}
-
 interface JobberJobNode {
   id: string;
   jobNumber: number | null;
@@ -83,7 +77,6 @@ interface JobberJobNode {
   completedAt: string | null;
   instructions: string | null;
   client: { id: string } | null;
-  lineItems: { nodes: JobberLineItem[] };
   customFields: JobberCustomField[];
 }
 
@@ -191,13 +184,6 @@ const JOBS_QUERY = `
         client {
           id
         }
-        lineItems {
-          nodes {
-            name
-            quantity
-            unitPrice
-          }
-        }
         customFields {
           ... on CustomFieldText      { label valueText }
           ... on CustomFieldNumeric   { label valueNumeric }
@@ -265,24 +251,6 @@ async function syncJobs(accessToken: string, orgId: string): Promise<{ jobsCount
 
       const internalJobId = upsertedJob.id;
 
-      // Line items — delete existing then insert fresh
-      if (j.lineItems.nodes.length > 0) {
-        await db.delete(jobLineItems).where(eq(jobLineItems.jobId, internalJobId));
-        for (const li of j.lineItems.nodes) {
-          if (!li.name) continue;
-          const qty = Number(li.quantity);
-          const price = Number(li.unitPrice);
-          await db.insert(jobLineItems).values({
-            id: crypto.randomUUID(),
-            jobId: internalJobId,
-            name: li.name,
-            quantity: String(qty),
-            unitPrice: String(price),
-            total: String(qty * price),
-          });
-        }
-      }
-
       for (const cf of j.customFields) {
         if (!cf.label) continue;
 
@@ -331,10 +299,6 @@ export async function syncOrg(jobberAccountId: string): Promise<SyncResult> {
 
   const accessToken = await getValidToken(jobberAccountId);
 
-  // Warm up the Jobber API connection before the heavy sync queries
-  console.log(`[sync] warming up Jobber API connection...`);
-  await gql(accessToken, "{ account { name } }").catch(() => {});
-  await new Promise((r) => setTimeout(r, 5000));
   console.log(`[sync] starting sync for org ${org.id}`);
 
   const clientsUpserted = await syncClients(accessToken, org.id);

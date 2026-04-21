@@ -8,7 +8,7 @@ import { groupAssets } from "../lib/groupAssets";
 import { calculateDueDates } from "../lib/calculateDueDates";
 import { deleteOrgData } from "../lib/deleteOrg";
 import { db } from "../db/client";
-import { jobberOrgs, assets, jobs, jobCustomFields, jobLineItems, clients } from "../db/schema";
+import { jobberOrgs, assets, jobs, jobCustomFields, clients } from "../db/schema";
 
 const router = Router();
 
@@ -76,13 +76,22 @@ router.post("/sync", async (req: Request, res: Response) => {
     return;
   }
 
-  try {
-    const result = await syncOrg(jobberAccountId);
-    res.json(result);
-  } catch (err) {
-    console.error("[sync] error:", err);
-    res.status(500).json({ error: String(err) });
-  }
+  // Respond immediately — full pipeline runs in background so the client
+  // doesn't time out waiting for a potentially long sync.
+  res.json({ ok: true, message: "Sync started" });
+
+  setImmediate(async () => {
+    try {
+      const result = await syncOrg(jobberAccountId);
+      console.log("[sync] syncOrg complete:", result);
+      await groupAssets(jobberAccountId);
+      console.log("[sync] groupAssets complete");
+      await calculateDueDates(jobberAccountId);
+      console.log("[sync] pipeline complete for", jobberAccountId);
+    } catch (err) {
+      console.error("[sync] pipeline error:", err);
+    }
+  });
 });
 
 // ---------- GET /api/custom-fields ----------
@@ -547,12 +556,15 @@ router.get("/jobs/:jobId/notes", async (req: Request, res: Response) => {
 
 // ---------- helper: fetch first visit's work notes + technician from Jobber ----------
 
-async function fetchJobVisitData(accessToken: string, jobberJobId: string): Promise<{ workNotes: string | null; technicianName: string | null }> {
-  // Fetch visit instructions, job-level notes, and technician in one query
+async function fetchJobVisitData(accessToken: string, jobberJobId: string): Promise<{ workNotes: string | null; technicianName: string | null; lineItems: { name: string; quantity: string }[] }> {
+  // Fetch visit instructions, job-level notes, technician, and line items in one query
   const query = `{
     job(id: ${JSON.stringify(jobberJobId)}) {
       notes {
         nodes { content }
+      }
+      lineItems {
+        nodes { name quantity }
       }
       visits(first: 1) {
         nodes {
@@ -583,6 +595,7 @@ async function fetchJobVisitData(accessToken: string, jobberJobId: string): Prom
       data?: {
         job?: {
           notes?: { nodes: { content: string }[] };
+          lineItems?: { nodes: { name: string; quantity: number }[] };
           visits?: {
             nodes: {
               instructions: string | null;
@@ -596,31 +609,33 @@ async function fetchJobVisitData(accessToken: string, jobberJobId: string): Prom
 
     if (json.errors?.length) {
       console.error(`[visit] GraphQL errors:`, json.errors.map(e => e.message).join(", "));
-      return { workNotes: null, technicianName: null };
+      return { workNotes: null, technicianName: null, lineItems: [] };
     }
 
     const job = json.data?.job;
-    if (!job) return { workNotes: null, technicianName: null };
+    if (!job) return { workNotes: null, technicianName: null, lineItems: [] };
 
     const visit = job.visits?.nodes?.[0];
     const visitInstructions = visit?.instructions?.trim() || null;
 
-    // Job-level notes (the notes panel on the right side of the job card)
     const jobNotes = job.notes?.nodes
       .map((n) => n.content?.trim())
       .filter(Boolean)
       .join("\n\n") || null;
 
-    // Combine: visit instructions first, then job notes
     const parts = [visitInstructions, jobNotes].filter(Boolean);
     const workNotes = parts.length > 0 ? parts.join("\n\n") : null;
 
     const technicianName = visit?.assignedUsers?.nodes?.[0]?.name?.full ?? null;
 
-    return { workNotes, technicianName };
+    const lineItems = (job.lineItems?.nodes ?? [])
+      .filter((li) => li.name)
+      .map((li) => ({ name: li.name, quantity: String(li.quantity) }));
+
+    return { workNotes, technicianName, lineItems };
   } catch (err) {
     console.error(`[visit] FAILED for jobberJobId=${jobberJobId}:`, String(err));
-    return { workNotes: null, technicianName: null };
+    return { workNotes: null, technicianName: null, lineItems: [] };
   }
 }
 
@@ -647,12 +662,11 @@ router.get("/jobs/:jobId/pdf", async (req: Request, res: Response) => {
       if (client) clientName = client.companyName ?? client.name;
     }
 
-    // Live visit data from Jobber (work notes + technician)
+    // Live data from Jobber: work notes, technician, line items
     const accessToken = await getValidToken(org.jobberAccountId);
-    const { workNotes, technicianName } = await fetchJobVisitData(accessToken, job.jobberJobId);
+    const { workNotes, technicianName, lineItems } = await fetchJobVisitData(accessToken, job.jobberJobId);
 
-    // Line items and custom fields
-    const lineItems = await db.select().from(jobLineItems).where(eq(jobLineItems.jobId, jobId));
+    // Custom fields from DB
     const customFields = await db.select().from(jobCustomFields).where(eq(jobCustomFields.jobId, jobId));
     const assetField = org.assetIdentifierField;
     const assetIdentifier = assetField
@@ -748,7 +762,7 @@ router.get("/jobs/:jobId/pdf", async (req: Request, res: Response) => {
       y += 14;
       lineItems.forEach((li) => {
         const qty = parseFloat(li.quantity);
-        const qtyStr = Number.isInteger(qty) ? String(qty) : qty.toFixed(2).replace(/\.?0+$/, "");
+        const qtyStr = Number.isInteger(qty) ? String(Math.round(qty)) : qty.toFixed(2).replace(/\.?0+$/, "");
         const line = `• ${li.name} x${qtyStr}`;
         doc.fillColor(navy).fontSize(10).font("Helvetica").text(line, L, y, { width: W });
         y += 17;

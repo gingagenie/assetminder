@@ -17,9 +17,10 @@ export function Nav({ left, right, onSyncComplete }: NavProps) {
     setSyncing(true);
     setSyncError(null);
     try {
+      // Backend runs the full pipeline (sync → group → calculate) and responds
+      // immediately. We wait a few seconds then reload data.
       await fetch(`${API}/api/sync`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ jobberAccountId }) });
-      await fetch(`${API}/api/group-assets`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ jobberAccountId }) });
-      await fetch(`${API}/api/calculate-due-dates`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ jobberAccountId }) });
+      await new Promise((r) => setTimeout(r, 15000));
       await onSyncComplete?.();
     } catch {
       setSyncError("Sync failed.");
