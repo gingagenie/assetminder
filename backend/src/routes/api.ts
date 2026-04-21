@@ -8,7 +8,7 @@ import { groupAssets } from "../lib/groupAssets";
 import { calculateDueDates } from "../lib/calculateDueDates";
 import { deleteOrgData } from "../lib/deleteOrg";
 import { db } from "../db/client";
-import { jobberOrgs, assets, jobs, jobCustomFields, clients } from "../db/schema";
+import { jobberOrgs, assets, jobs, jobCustomFields, jobLineItems, clients } from "../db/schema";
 
 const router = Router();
 
@@ -548,10 +548,12 @@ router.get("/jobs/:jobId/notes", async (req: Request, res: Response) => {
 // ---------- helper: fetch first visit's work notes + technician from Jobber ----------
 
 async function fetchJobVisitData(accessToken: string, jobberJobId: string): Promise<{ workNotes: string | null; technicianName: string | null }> {
-  // Query a single job's first visit for work notes and technician
-  // Inline the ID as a literal to avoid variable type issues
+  // Fetch visit instructions, job-level notes, and technician in one query
   const query = `{
     job(id: ${JSON.stringify(jobberJobId)}) {
+      notes {
+        nodes { content }
+      }
       visits(first: 1) {
         nodes {
           instructions
@@ -580,6 +582,7 @@ async function fetchJobVisitData(accessToken: string, jobberJobId: string): Prom
     const json = JSON.parse(text) as {
       data?: {
         job?: {
+          notes?: { nodes: { content: string }[] };
           visits?: {
             nodes: {
               instructions: string | null;
@@ -596,11 +599,23 @@ async function fetchJobVisitData(accessToken: string, jobberJobId: string): Prom
       return { workNotes: null, technicianName: null };
     }
 
-    const visit = json.data?.job?.visits?.nodes?.[0];
-    if (!visit) return { workNotes: null, technicianName: null };
+    const job = json.data?.job;
+    if (!job) return { workNotes: null, technicianName: null };
 
-    const workNotes = visit.instructions?.trim() || null;
-    const technicianName = visit.assignedUsers?.nodes?.[0]?.name?.full ?? null;
+    const visit = job.visits?.nodes?.[0];
+    const visitInstructions = visit?.instructions?.trim() || null;
+
+    // Job-level notes (the notes panel on the right side of the job card)
+    const jobNotes = job.notes?.nodes
+      .map((n) => n.content?.trim())
+      .filter(Boolean)
+      .join("\n\n") || null;
+
+    // Combine: visit instructions first, then job notes
+    const parts = [visitInstructions, jobNotes].filter(Boolean);
+    const workNotes = parts.length > 0 ? parts.join("\n\n") : null;
+
+    const technicianName = visit?.assignedUsers?.nodes?.[0]?.name?.full ?? null;
 
     return { workNotes, technicianName };
   } catch (err) {
@@ -636,7 +651,8 @@ router.get("/jobs/:jobId/pdf", async (req: Request, res: Response) => {
     const accessToken = await getValidToken(org.jobberAccountId);
     const { workNotes, technicianName } = await fetchJobVisitData(accessToken, job.jobberJobId);
 
-    // Custom fields — separate asset identifier from display fields
+    // Line items and custom fields
+    const lineItems = await db.select().from(jobLineItems).where(eq(jobLineItems.jobId, jobId));
     const customFields = await db.select().from(jobCustomFields).where(eq(jobCustomFields.jobId, jobId));
     const assetField = org.assetIdentifierField;
     const assetIdentifier = assetField
@@ -722,6 +738,22 @@ router.get("/jobs/:jobId/pdf", async (req: Request, res: Response) => {
       doc.rect(L, y - 6, W, textHeight + 16).fill("#f1f5f9");
       doc.fillColor(navy).fontSize(11).font("Helvetica").text(workNotesText, L + 10, y, { width: W - 20 });
       y += textHeight + 24;
+    }
+
+    // Parts & materials
+    if (lineItems.length > 0) {
+      doc.moveTo(L, y).lineTo(R, y).lineWidth(0.5).strokeColor(rule).stroke();
+      y += 16;
+      doc.fillColor(slate).fontSize(8).font("Helvetica").text("PARTS & MATERIALS", L, y);
+      y += 14;
+      lineItems.forEach((li) => {
+        const qty = parseFloat(li.quantity);
+        const qtyStr = Number.isInteger(qty) ? String(qty) : qty.toFixed(2).replace(/\.?0+$/, "");
+        const line = `• ${li.name} x${qtyStr}`;
+        doc.fillColor(navy).fontSize(10).font("Helvetica").text(line, L, y, { width: W });
+        y += 17;
+      });
+      y += 4;
     }
 
     // Custom fields
