@@ -637,17 +637,10 @@ async function fetchJobVisitData(accessToken: string, jobberJobId: string): Prom
 
 // Fetches job-level notes (JobNote union type) and line items separately
 // so a failure here cannot affect technician or visit instructions.
-async function fetchJobExtras(accessToken: string, jobberJobId: string): Promise<{ jobNotes: string | null; lineItems: { name: string; quantity: string }[]; photoAttachments: { fileName: string; url: string }[] }> {
+async function fetchJobExtras(accessToken: string, jobberJobId: string): Promise<{ jobNotes: string | null; lineItems: { name: string; quantity: string }[] }> {
   const query = `{
     job(id: ${JSON.stringify(jobberJobId)}) {
-      notes {
-        nodes {
-          ... on JobNote {
-            message
-            fileAttachments { nodes { fileName url } }
-          }
-        }
-      }
+      notes { nodes { ... on JobNote { message } } }
       lineItems { nodes { name quantity } }
     }
   }`;
@@ -667,7 +660,7 @@ async function fetchJobExtras(accessToken: string, jobberJobId: string): Promise
     const json = JSON.parse(text) as {
       data?: {
         job?: {
-          notes?: { nodes: { message?: string; fileAttachments?: { nodes: { fileName: string; url: string }[] } }[] };
+          notes?: { nodes: { message?: string }[] };
           lineItems?: { nodes: { name: string; quantity: number }[] };
         };
       };
@@ -689,19 +682,65 @@ async function fetchJobExtras(accessToken: string, jobberJobId: string): Promise
       .filter((li) => li.name)
       .map((li) => ({ name: li.name, quantity: String(li.quantity) }));
 
-    const photoAttachments = (job?.notes?.nodes ?? [])
-      .flatMap((n) => n.fileAttachments?.nodes ?? [])
-      .filter((a) => a.url);
-
-    return { jobNotes, lineItems, photoAttachments };
+    return { jobNotes, lineItems };
   } catch (err) {
     console.error(`[extras] FAILED for jobberJobId=${jobberJobId}:`, String(err));
-    return { jobNotes: null, lineItems: [], photoAttachments: [] };
+    return { jobNotes: null, lineItems: [] };
   }
 }
 
-// ---------- helper: fetch image as Buffer for PDF embedding ----------
+// Fetches photo attachments from job notes — completely isolated so any
+// schema mismatch or network failure here cannot affect notes or line items.
+async function fetchJobPhotos(accessToken: string, jobberJobId: string): Promise<{ fileName: string; url: string }[]> {
+  const query = `{
+    job(id: ${JSON.stringify(jobberJobId)}) {
+      notes {
+        nodes {
+          ... on JobNote {
+            fileAttachments { nodes { fileName url } }
+          }
+        }
+      }
+    }
+  }`;
 
+  try {
+    const res = await fetch(JOBBER_GRAPHQL_URL, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${accessToken}`,
+        "X-JOBBER-GRAPHQL-VERSION": JOBBER_API_VERSION,
+      },
+      body: JSON.stringify({ query }),
+    });
+
+    const text = await res.text();
+    const json = JSON.parse(text) as {
+      data?: {
+        job?: {
+          notes?: { nodes: { fileAttachments?: { nodes: { fileName: string; url: string }[] } }[] };
+        };
+      };
+      errors?: { message: string }[];
+    };
+
+    if (json.errors?.length) {
+      console.error(`[photos] GraphQL errors:`, json.errors.map(e => e.message).join(", "));
+      return [];
+    }
+
+    return (json.data?.job?.notes?.nodes ?? [])
+      .flatMap((n) => n.fileAttachments?.nodes ?? [])
+      .filter((a) => a.url);
+  } catch (err) {
+    console.error(`[photos] FAILED for jobberJobId=${jobberJobId}:`, String(err));
+    return [];
+  }
+}
+
+// Downloads an image URL into a Buffer for PDFKit embedding.
+// Returns null on any failure so callers can skip gracefully.
 async function fetchImageBuffer(url: string): Promise<Buffer | null> {
   try {
     const res = await fetch(url);
@@ -742,12 +781,14 @@ router.get("/jobs/:jobId/pdf", async (req: Request, res: Response) => {
 
     // Live data from Jobber — two separate queries so extras can't break technician
     const accessToken = await getValidToken(org.jobberAccountId);
-    const [dbLineItems, [{ workNotes: visitNotes, technicianName }, { jobNotes, lineItems: liveLineItems, photoAttachments }]] = await Promise.all([
+    // All data fetched before piping so PDF generation is fully synchronous.
+    const [dbLineItems, [{ workNotes: visitNotes, technicianName }, { jobNotes, lineItems: liveLineItems }], photoAttachments] = await Promise.all([
       db.select().from(jobLineItems).where(eq(jobLineItems.jobId, jobId)),
       Promise.all([
         fetchJobVisitData(accessToken, job.jobberJobId),
         fetchJobExtras(accessToken, job.jobberJobId),
       ]),
+      fetchJobPhotos(accessToken, job.jobberJobId),
     ]);
     const noteParts = [visitNotes, jobNotes].filter(Boolean);
     const workNotes = noteParts.length > 0 ? noteParts.join("\n\n") : null;
@@ -755,6 +796,16 @@ router.get("/jobs/:jobId/pdf", async (req: Request, res: Response) => {
     const lineItems = dbLineItems.length > 0
       ? dbLineItems.map((li) => ({ name: li.name, quantity: li.quantity }))
       : liveLineItems;
+
+    // Pre-fetch all images before piping — keeps PDF generation synchronous
+    const images = (
+      await Promise.all(
+        photoAttachments.map(async (a) => {
+          const buf = await fetchImageBuffer(a.url);
+          return buf ? { buf, fileName: a.fileName } : null;
+        })
+      )
+    ).filter((img): img is { buf: Buffer; fileName: string } => img !== null);
 
     // Custom fields from DB
     const customFields = await db.select().from(jobCustomFields).where(eq(jobCustomFields.jobId, jobId));
@@ -783,6 +834,8 @@ router.get("/jobs/:jobId/pdf", async (req: Request, res: Response) => {
       `attachment; filename="service-report-${job.jobNumber ?? jobId}.pdf"`
     );
     doc.pipe(res);
+
+    try {
 
     // Header bar
     doc.rect(0, 0, doc.page.width as number, 78).fill(navy);
@@ -860,61 +913,48 @@ router.get("/jobs/:jobId/pdf", async (req: Request, res: Response) => {
       y += 4;
     }
 
-    // Photos
-    if (photoAttachments.length > 0) {
-      const images = (
-        await Promise.all(
-          photoAttachments.map(async (a) => {
-            const buf = await fetchImageBuffer(a.url);
-            return buf ? { buf, fileName: a.fileName } : null;
-          })
-        )
-      ).filter((img): img is { buf: Buffer; fileName: string } => img !== null);
+    // Photos — images already fetched above; generation is fully synchronous here
+    if (images.length > 0) {
+      doc.moveTo(L, y).lineTo(R, y).lineWidth(0.5).strokeColor(rule).stroke();
+      y += 16;
+      doc.fillColor(slate).fontSize(8).font("Helvetica").text("PHOTOS", L, y);
+      y += 14;
 
-      if (images.length > 0) {
-        doc.moveTo(L, y).lineTo(R, y).lineWidth(0.5).strokeColor(rule).stroke();
-        y += 16;
-        doc.fillColor(slate).fontSize(8).font("Helvetica").text("PHOTOS", L, y);
-        y += 14;
+      const imgW = 240;
+      const imgMaxH = 180;
+      const colGap = W - imgW * 2;
 
-        const imgW = 240;
-        const imgMaxH = 180;
-        const colGap = W - imgW * 2; // remaining space between two columns
-
-        for (let i = 0; i < images.length; i += 2) {
-          // Page-overflow guard: add new page if not enough room for an image row + caption
-          if (y + imgMaxH + 20 > (doc.page.height as number) - 60) {
-            doc.addPage();
-            y = 50;
-          }
-
-          const rowStart = y;
-          const left = images[i];
-          const right = images[i + 1] ?? null;
-
-          try {
-            doc.image(left.buf, L, rowStart, { fit: [imgW, imgMaxH] });
-          } catch (err) {
-            console.warn(`[pdf] failed to embed image "${left.fileName}":`, String(err));
-          }
-          if (right) {
-            try {
-              doc.image(right.buf, L + imgW + colGap, rowStart, { fit: [imgW, imgMaxH] });
-            } catch (err) {
-              console.warn(`[pdf] failed to embed image "${right.fileName}":`, String(err));
-            }
-          }
-
-          // Captions
-          y = rowStart + imgMaxH + 4;
-          doc.fillColor(slate).fontSize(8).font("Helvetica")
-            .text(left.fileName, L, y, { width: imgW });
-          if (right) {
-            doc.fillColor(slate).fontSize(8).font("Helvetica")
-              .text(right.fileName, L + imgW + colGap, y, { width: imgW });
-          }
-          y += 20;
+      for (let i = 0; i < images.length; i += 2) {
+        if (y + imgMaxH + 20 > (doc.page.height as number) - 60) {
+          doc.addPage();
+          y = 50;
         }
+
+        const rowStart = y;
+        const left = images[i];
+        const right = images[i + 1] ?? null;
+
+        try {
+          doc.image(left.buf, L, rowStart, { fit: [imgW, imgMaxH] });
+        } catch (err) {
+          console.warn(`[pdf] failed to embed image "${left.fileName}":`, String(err));
+        }
+        if (right) {
+          try {
+            doc.image(right.buf, L + imgW + colGap, rowStart, { fit: [imgW, imgMaxH] });
+          } catch (err) {
+            console.warn(`[pdf] failed to embed image "${right.fileName}":`, String(err));
+          }
+        }
+
+        y = rowStart + imgMaxH + 4;
+        doc.fillColor(slate).fontSize(8).font("Helvetica")
+          .text(left.fileName, L, y, { width: imgW });
+        if (right) {
+          doc.fillColor(slate).fontSize(8).font("Helvetica")
+            .text(right.fileName, L + imgW + colGap, y, { width: imgW });
+        }
+        y += 20;
       }
     }
 
@@ -939,7 +979,9 @@ router.get("/jobs/:jobId/pdf", async (req: Request, res: Response) => {
     doc.fillColor(slate).fontSize(8).font("Helvetica")
       .text("Generated by AssetMinder · assetminder-frontend.onrender.com", L, pageH - 36, { width: W, align: "center" });
 
-    doc.end();
+    } finally {
+      doc.end();
+    }
   } catch (err) {
     console.error("[pdf] error:", err);
     if (!res.headersSent) res.status(500).json({ error: String(err) });
