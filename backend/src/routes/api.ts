@@ -730,9 +730,15 @@ async function fetchJobPhotos(accessToken: string, jobberJobId: string): Promise
       return [];
     }
 
-    return (json.data?.job?.notes?.nodes ?? [])
+    const rawNotes = json.data?.job?.notes?.nodes ?? [];
+    console.log(`[photos] raw notes nodes:`, JSON.stringify(rawNotes));
+
+    const attachments = rawNotes
       .flatMap((n) => n.fileAttachments?.nodes ?? [])
       .filter((a) => a.url);
+    console.log(`[photos] attachments:`, JSON.stringify(attachments));
+
+    return attachments;
   } catch (err) {
     console.error(`[photos] FAILED for jobberJobId=${jobberJobId}:`, String(err));
     return [];
