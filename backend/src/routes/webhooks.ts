@@ -7,6 +7,12 @@ import { deleteOrgData } from "../lib/deleteOrg";
 
 const router = Router();
 
+// Jobber replays queued webhook deliveries the moment the service restarts.
+// Ignore all webhook-triggered syncs for the first 30 seconds after boot so
+// that a burst of replayed events on startup doesn't hammer the API.
+const STARTUP_COOLDOWN_MS = 30_000;
+const startedAt = Date.now();
+
 // Per-account lock: prevents stacked webhook deliveries from triggering
 // concurrent syncs. If a sync is already running for an account, additional
 // webhook events for that account are acknowledged but skipped.
@@ -79,6 +85,13 @@ router.post("/jobber", (req: Request, res: Response) => {
 
   // Respond immediately — Jobber requires a response within 1 second
   res.status(200).json({ ok: true });
+
+  // Drop webhook-triggered syncs during the startup cooldown window
+  const age = Date.now() - startedAt;
+  if (age < STARTUP_COOLDOWN_MS) {
+    console.log(`[webhook] ${topic} — startup cooldown (${Math.round(age / 1000)}s < 30s), skipping`);
+    return;
+  }
 
   // Skip if a sync is already running for this account (handles webhook bursts on restart)
   if (syncInProgress.has(accountId)) {
