@@ -334,6 +334,25 @@ export default function AssetDetail() {
                             </div>
                           )}
 
+                          {/* Parts & Materials */}
+                          {job.lineItems.length > 0 && (
+                            <div>
+                              <p className="text-xs font-semibold uppercase tracking-widest text-slate-400 mb-2">Parts & Materials</p>
+                              <div className="space-y-1">
+                                {job.lineItems.map((li, i) => {
+                                  const qty = parseFloat(String(li.quantity));
+                                  const qtyStr = Number.isInteger(qty) ? String(Math.round(qty)) : qty.toFixed(2).replace(/\.?0+$/, "");
+                                  return (
+                                    <p key={i} className="text-sm text-slate-700">
+                                      <span className="font-medium">• {li.name}</span>
+                                      <span className="text-slate-400"> ×{qtyStr}</span>
+                                    </p>
+                                  );
+                                })}
+                              </div>
+                            </div>
+                          )}
+
                           {/* Custom fields */}
                           {job.customFields.length > 0 && (
                             <div>
@@ -350,7 +369,7 @@ export default function AssetDetail() {
                           )}
 
                           {/* Empty state */}
-                          {!isLoadingNotes && !workNotes && !job.instructions && !techName && job.customFields.length === 0 && (
+                          {!isLoadingNotes && !workNotes && !job.instructions && !techName && job.customFields.length === 0 && job.lineItems.length === 0 && (
                             <p className="text-sm text-slate-400">No additional details available.</p>
                           )}
                         </div>

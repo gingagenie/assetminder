@@ -8,7 +8,7 @@ import { groupAssets } from "../lib/groupAssets";
 import { calculateDueDates } from "../lib/calculateDueDates";
 import { deleteOrgData } from "../lib/deleteOrg";
 import { db } from "../db/client";
-import { jobberOrgs, assets, jobs, jobCustomFields, clients } from "../db/schema";
+import { jobberOrgs, assets, jobs, jobCustomFields, clients, jobLineItems } from "../db/schema";
 
 const router = Router();
 
@@ -322,6 +322,15 @@ router.get("/assets/:assetId/jobs", async (req: Request, res: Response) => {
       fieldsByJob.get(f.jobId)!.push({ label: f.fieldLabel, value: f.fieldValue });
     }
 
+    const allLineItems = jobIds.length > 0
+      ? await db.select().from(jobLineItems).where(inArray(jobLineItems.jobId, jobIds))
+      : [];
+    const lineItemsByJob = new Map<string, typeof allLineItems>();
+    for (const li of allLineItems) {
+      if (!lineItemsByJob.has(li.jobId)) lineItemsByJob.set(li.jobId, []);
+      lineItemsByJob.get(li.jobId)!.push(li);
+    }
+
     // Status
     const MS_PER_DAY = 24 * 60 * 60 * 1000;
     const AMBER_DAYS = 30;
@@ -356,7 +365,12 @@ router.get("/assets/:assetId/jobs", async (req: Request, res: Response) => {
         completedAt: j.completedAt ?? null,
         jobStatus: j.jobStatus,
         customFields: fieldsByJob.get(j.id) ?? [],
-        lineItems: [],
+        lineItems: (lineItemsByJob.get(j.id) ?? []).map((li) => ({
+          name: li.name,
+          quantity: parseFloat(li.quantity),
+          unitPrice: parseFloat(li.unitPrice),
+          total: parseFloat(li.total),
+        })),
         technicianName: j.assignedTo ?? null,
         instructions: j.instructions ?? null,
       })),
@@ -626,7 +640,7 @@ async function fetchJobVisitData(accessToken: string, jobberJobId: string): Prom
 async function fetchJobExtras(accessToken: string, jobberJobId: string): Promise<{ jobNotes: string | null; lineItems: { name: string; quantity: string }[] }> {
   const query = `{
     job(id: ${JSON.stringify(jobberJobId)}) {
-      notes { nodes { ... on JobNote { content } } }
+      notes { nodes { ... on JobNote { message } } }
       lineItems { nodes { name quantity } }
     }
   }`;
@@ -646,7 +660,7 @@ async function fetchJobExtras(accessToken: string, jobberJobId: string): Promise
     const json = JSON.parse(text) as {
       data?: {
         job?: {
-          notes?: { nodes: { content?: string }[] };
+          notes?: { nodes: { message?: string }[] };
           lineItems?: { nodes: { name: string; quantity: number }[] };
         };
       };
@@ -660,7 +674,7 @@ async function fetchJobExtras(accessToken: string, jobberJobId: string): Promise
     const job = json.data?.job;
 
     const jobNotes = (job?.notes?.nodes ?? [])
-      .map((n) => n.content?.trim())
+      .map((n) => n.message?.trim())
       .filter(Boolean)
       .join("\n\n") || null;
 
@@ -700,12 +714,19 @@ router.get("/jobs/:jobId/pdf", async (req: Request, res: Response) => {
 
     // Live data from Jobber — two separate queries so extras can't break technician
     const accessToken = await getValidToken(org.jobberAccountId);
-    const [{ workNotes: visitNotes, technicianName }, { jobNotes, lineItems }] = await Promise.all([
-      fetchJobVisitData(accessToken, job.jobberJobId),
-      fetchJobExtras(accessToken, job.jobberJobId),
+    const [dbLineItems, [{ workNotes: visitNotes, technicianName }, { jobNotes, lineItems: liveLineItems }]] = await Promise.all([
+      db.select().from(jobLineItems).where(eq(jobLineItems.jobId, jobId)),
+      Promise.all([
+        fetchJobVisitData(accessToken, job.jobberJobId),
+        fetchJobExtras(accessToken, job.jobberJobId),
+      ]),
     ]);
     const noteParts = [visitNotes, jobNotes].filter(Boolean);
     const workNotes = noteParts.length > 0 ? noteParts.join("\n\n") : null;
+    // Prefer DB line items (synced); fall back to live fetch if DB is empty
+    const lineItems = dbLineItems.length > 0
+      ? dbLineItems.map((li) => ({ name: li.name, quantity: li.quantity }))
+      : liveLineItems;
 
     // Custom fields from DB
     const customFields = await db.select().from(jobCustomFields).where(eq(jobCustomFields.jobId, jobId));

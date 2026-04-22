@@ -1,6 +1,6 @@
 import crypto from "crypto";
 import { db } from "../db/client";
-import { jobberOrgs, clients, jobs, jobCustomFields } from "../db/schema";
+import { jobberOrgs, clients, jobs, jobCustomFields, jobLineItems } from "../db/schema";
 import { eq } from "drizzle-orm";
 import { getValidToken } from "./jobberToken";
 
@@ -58,6 +58,13 @@ interface JobberClientNode {
   emails: { address: string }[];
 }
 
+interface JobberLineItem {
+  name: string;
+  quantity: number;
+  unitPrice: number;
+  total: number;
+}
+
 interface JobberCustomField {
   label: string;
   valueText?: string;
@@ -78,6 +85,7 @@ interface JobberJobNode {
   instructions: string | null;
   client: { id: string } | null;
   customFields: JobberCustomField[];
+  lineItems: { nodes: JobberLineItem[] };
 }
 
 // ---------- Client sync ----------
@@ -192,6 +200,9 @@ const JOBS_QUERY = `
           ... on CustomFieldLink      { label valueLink { text url } }
           ... on CustomFieldTrueFalse { label valueTrueFalse }
         }
+        lineItems(first: 100) {
+          nodes { name quantity unitPrice total }
+        }
       }
       pageInfo {
         hasNextPage
@@ -268,6 +279,20 @@ async function syncJobs(accessToken: string, orgId: string): Promise<{ jobsCount
           });
 
         fieldsCount++;
+      }
+
+      // Replace line items for this job
+      await db.delete(jobLineItems).where(eq(jobLineItems.jobId, internalJobId));
+      for (const li of j.lineItems?.nodes ?? []) {
+        if (!li.name) continue;
+        await db.insert(jobLineItems).values({
+          id: crypto.randomUUID(),
+          jobId: internalJobId,
+          name: li.name,
+          quantity: String(li.quantity ?? 0),
+          unitPrice: String(li.unitPrice ?? 0),
+          total: String(li.total ?? 0),
+        });
       }
 
       jobsCount++;

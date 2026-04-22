@@ -14,6 +14,7 @@ const allowedOrigins = [
   process.env.FRONTEND_URL,
 ].filter(Boolean) as string[];
 
+app.set("trust proxy", 1);
 app.use(cors({ origin: allowedOrigins, credentials: true }));
 
 // Raw body capture for webhook HMAC — MUST be before express.json()
