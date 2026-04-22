@@ -62,7 +62,7 @@ interface JobberLineItem {
   name: string;
   quantity: number;
   unitPrice: number;
-  total: number;
+  totalCost: number;
 }
 
 interface JobberCustomField {
@@ -201,7 +201,7 @@ const JOBS_QUERY = `
           ... on CustomFieldTrueFalse { label valueTrueFalse }
         }
         lineItems(first: 100) {
-          nodes { name quantity unitPrice total }
+          nodes { name quantity unitPrice totalCost }
         }
       }
       pageInfo {
@@ -291,7 +291,7 @@ async function syncJobs(accessToken: string, orgId: string): Promise<{ jobsCount
           name: li.name,
           quantity: String(li.quantity ?? 0),
           unitPrice: String(li.unitPrice ?? 0),
-          total: String(li.total ?? 0),
+          total: String(li.totalCost ?? 0),
         });
       }
 
