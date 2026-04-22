@@ -637,10 +637,17 @@ async function fetchJobVisitData(accessToken: string, jobberJobId: string): Prom
 
 // Fetches job-level notes (JobNote union type) and line items separately
 // so a failure here cannot affect technician or visit instructions.
-async function fetchJobExtras(accessToken: string, jobberJobId: string): Promise<{ jobNotes: string | null; lineItems: { name: string; quantity: string }[] }> {
+async function fetchJobExtras(accessToken: string, jobberJobId: string): Promise<{ jobNotes: string | null; lineItems: { name: string; quantity: string }[]; photoAttachments: { fileName: string; url: string }[] }> {
   const query = `{
     job(id: ${JSON.stringify(jobberJobId)}) {
-      notes { nodes { ... on JobNote { message } } }
+      notes {
+        nodes {
+          ... on JobNote {
+            message
+            fileAttachments { nodes { fileName url } }
+          }
+        }
+      }
       lineItems { nodes { name quantity } }
     }
   }`;
@@ -660,7 +667,7 @@ async function fetchJobExtras(accessToken: string, jobberJobId: string): Promise
     const json = JSON.parse(text) as {
       data?: {
         job?: {
-          notes?: { nodes: { message?: string }[] };
+          notes?: { nodes: { message?: string; fileAttachments?: { nodes: { fileName: string; url: string }[] } }[] };
           lineItems?: { nodes: { name: string; quantity: number }[] };
         };
       };
@@ -682,10 +689,31 @@ async function fetchJobExtras(accessToken: string, jobberJobId: string): Promise
       .filter((li) => li.name)
       .map((li) => ({ name: li.name, quantity: String(li.quantity) }));
 
-    return { jobNotes, lineItems };
+    const photoAttachments = (job?.notes?.nodes ?? [])
+      .flatMap((n) => n.fileAttachments?.nodes ?? [])
+      .filter((a) => a.url);
+
+    return { jobNotes, lineItems, photoAttachments };
   } catch (err) {
     console.error(`[extras] FAILED for jobberJobId=${jobberJobId}:`, String(err));
-    return { jobNotes: null, lineItems: [] };
+    return { jobNotes: null, lineItems: [], photoAttachments: [] };
+  }
+}
+
+// ---------- helper: fetch image as Buffer for PDF embedding ----------
+
+async function fetchImageBuffer(url: string): Promise<Buffer | null> {
+  try {
+    const res = await fetch(url);
+    if (!res.ok) {
+      console.warn(`[pdf] image fetch failed (${res.status}): ${url}`);
+      return null;
+    }
+    const arrayBuffer = await res.arrayBuffer();
+    return Buffer.from(arrayBuffer);
+  } catch (err) {
+    console.warn(`[pdf] image fetch error:`, String(err));
+    return null;
   }
 }
 
@@ -714,7 +742,7 @@ router.get("/jobs/:jobId/pdf", async (req: Request, res: Response) => {
 
     // Live data from Jobber — two separate queries so extras can't break technician
     const accessToken = await getValidToken(org.jobberAccountId);
-    const [dbLineItems, [{ workNotes: visitNotes, technicianName }, { jobNotes, lineItems: liveLineItems }]] = await Promise.all([
+    const [dbLineItems, [{ workNotes: visitNotes, technicianName }, { jobNotes, lineItems: liveLineItems, photoAttachments }]] = await Promise.all([
       db.select().from(jobLineItems).where(eq(jobLineItems.jobId, jobId)),
       Promise.all([
         fetchJobVisitData(accessToken, job.jobberJobId),
@@ -830,6 +858,64 @@ router.get("/jobs/:jobId/pdf", async (req: Request, res: Response) => {
         y += 17;
       });
       y += 4;
+    }
+
+    // Photos
+    if (photoAttachments.length > 0) {
+      const images = (
+        await Promise.all(
+          photoAttachments.map(async (a) => {
+            const buf = await fetchImageBuffer(a.url);
+            return buf ? { buf, fileName: a.fileName } : null;
+          })
+        )
+      ).filter((img): img is { buf: Buffer; fileName: string } => img !== null);
+
+      if (images.length > 0) {
+        doc.moveTo(L, y).lineTo(R, y).lineWidth(0.5).strokeColor(rule).stroke();
+        y += 16;
+        doc.fillColor(slate).fontSize(8).font("Helvetica").text("PHOTOS", L, y);
+        y += 14;
+
+        const imgW = 240;
+        const imgMaxH = 180;
+        const colGap = W - imgW * 2; // remaining space between two columns
+
+        for (let i = 0; i < images.length; i += 2) {
+          // Page-overflow guard: add new page if not enough room for an image row + caption
+          if (y + imgMaxH + 20 > (doc.page.height as number) - 60) {
+            doc.addPage();
+            y = 50;
+          }
+
+          const rowStart = y;
+          const left = images[i];
+          const right = images[i + 1] ?? null;
+
+          try {
+            doc.image(left.buf, L, rowStart, { fit: [imgW, imgMaxH] });
+          } catch (err) {
+            console.warn(`[pdf] failed to embed image "${left.fileName}":`, String(err));
+          }
+          if (right) {
+            try {
+              doc.image(right.buf, L + imgW + colGap, rowStart, { fit: [imgW, imgMaxH] });
+            } catch (err) {
+              console.warn(`[pdf] failed to embed image "${right.fileName}":`, String(err));
+            }
+          }
+
+          // Captions
+          y = rowStart + imgMaxH + 4;
+          doc.fillColor(slate).fontSize(8).font("Helvetica")
+            .text(left.fileName, L, y, { width: imgW });
+          if (right) {
+            doc.fillColor(slate).fontSize(8).font("Helvetica")
+              .text(right.fileName, L + imgW + colGap, y, { width: imgW });
+          }
+          y += 20;
+        }
+      }
     }
 
     // Custom fields
