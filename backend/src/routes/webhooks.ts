@@ -7,6 +7,11 @@ import { deleteOrgData } from "../lib/deleteOrg";
 
 const router = Router();
 
+// Per-account lock: prevents stacked webhook deliveries from triggering
+// concurrent syncs. If a sync is already running for an account, additional
+// webhook events for that account are acknowledged but skipped.
+const syncInProgress = new Set<string>();
+
 interface JobberWebhookPayload {
   topic: string;
   accountId: string;
@@ -75,8 +80,15 @@ router.post("/jobber", (req: Request, res: Response) => {
   // Respond immediately — Jobber requires a response within 1 second
   res.status(200).json({ ok: true });
 
+  // Skip if a sync is already running for this account (handles webhook bursts on restart)
+  if (syncInProgress.has(accountId)) {
+    console.log(`[webhook] ${topic} for accountId=${accountId} — sync already running, skipping`);
+    return;
+  }
+
   // Run the full sync pipeline async after responding
   setImmediate(async () => {
+    syncInProgress.add(accountId);
     console.log(`[webhook] ${topic} for accountId=${accountId} — starting pipeline`);
     try {
       await syncOrg(accountId);
@@ -91,6 +103,8 @@ router.post("/jobber", (req: Request, res: Response) => {
       console.log(`[webhook] pipeline complete for accountId=${accountId}`);
     } catch (err) {
       console.error(`[webhook] pipeline failed for accountId=${accountId}:`, err);
+    } finally {
+      syncInProgress.delete(accountId);
     }
   });
 });
