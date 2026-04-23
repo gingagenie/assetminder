@@ -70,6 +70,7 @@ router.get("/me", async (req: Request, res: Response) => {
 
 router.post("/sync", async (req: Request, res: Response) => {
   const { jobberAccountId } = req.body as { jobberAccountId?: string };
+  console.log("[sync] POST /api/sync received — ip:", req.ip, "| user-agent:", req.headers["user-agent"], "| origin:", req.headers["origin"], "| referer:", req.headers["referer"]);
 
   if (!jobberAccountId) {
     res.status(400).json({ error: "Missing required body param: jobberAccountId" });
