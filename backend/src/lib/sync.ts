@@ -314,7 +314,6 @@ export interface SyncResult {
 }
 
 export async function syncOrg(jobberAccountId: string): Promise<SyncResult> {
-  console.trace("[sync] syncOrg called");
   const [org] = await db
     .select()
     .from(jobberOrgs)

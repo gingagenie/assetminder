@@ -19,7 +19,13 @@ export function Nav({ left, right, onSyncComplete }: NavProps) {
     try {
       // Backend runs the full pipeline (sync → group → calculate) and responds
       // immediately. We wait a few seconds then reload data.
-      await fetch(`${API}/api/sync`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ jobberAccountId }) });
+      const res = await fetch(`${API}/api/sync`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ jobberAccountId }) });
+      if (!res.ok) {
+        const data = await res.json() as { error?: string };
+        setSyncError(data.error ?? "Sync failed.");
+        setTimeout(() => setSyncError(null), 6000);
+        return;
+      }
       await new Promise((r) => setTimeout(r, 15000));
       await onSyncComplete?.();
     } catch {
