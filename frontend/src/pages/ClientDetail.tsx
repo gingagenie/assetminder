@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useParams, useNavigate, Link } from "react-router-dom";
 import { API } from "@/lib/api";
 import { ChevronLeft } from "lucide-react";
@@ -25,6 +25,7 @@ interface Client {
   email: string | null;
   jobberClientId: string;
   portalToken: string | null;
+  serviceIntervalDays: number | null;
 }
 
 // ---------- Helpers ----------
@@ -37,116 +38,15 @@ const INTERVAL_OPTIONS = [
 ];
 
 const statusConfig = {
-  ok:          { label: "OK",          pill: "bg-green-100 text-green-700", border: "border-l-green-500" },
-  amber:       { label: "Due Soon",    pill: "bg-amber-100 text-amber-700", border: "border-l-amber-500" },
-  overdue:     { label: "Overdue",     pill: "bg-red-100 text-red-700",     border: "border-l-red-500"   },
-  unscheduled: { label: "Unscheduled", pill: "bg-slate-100 text-slate-500", border: "border-l-slate-300" },
+  ok:          { label: "OK",          pill: "bg-green-100 text-green-700",  border: "border-l-green-500"  },
+  amber:       { label: "Due Soon",    pill: "bg-amber-100 text-amber-700",  border: "border-l-amber-500"  },
+  overdue:     { label: "Overdue",     pill: "bg-red-100 text-red-700",      border: "border-l-red-500"    },
+  unscheduled: { label: "Unscheduled", pill: "bg-slate-100 text-slate-500",  border: "border-l-slate-300"  },
 };
-
-function deriveStatus(intervalDays: number | null, nextDueAt: string | null): Asset["status"] {
-  if (!intervalDays || !nextDueAt) return "unscheduled";
-  const days = (new Date(nextDueAt).getTime() - Date.now()) / (24 * 60 * 60 * 1000);
-  if (days < 0)  return "overdue";
-  if (days < 30) return "amber";
-  return "ok";
-}
 
 function formatDate(iso: string | null) {
   if (!iso) return "—";
   return new Date(iso).toLocaleDateString(undefined, { dateStyle: "medium" });
-}
-
-// ---------- AssetRow ----------
-
-function AssetRow({ asset, clientId, clientName, jobberAccountId }: {
-  asset: Asset;
-  clientId: string;
-  clientName: string;
-  jobberAccountId: string;
-}) {
-  const [intervalDays, setIntervalDays] = useState<number | null>(asset.serviceIntervalDays);
-  const [nextDueAt, setNextDueAt]       = useState<string | null>(asset.nextDueAt);
-  const [saved, setSaved]               = useState(false);
-  const savedTimer                      = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  const status = deriveStatus(intervalDays, nextDueAt);
-  const { label, pill, border } = statusConfig[status];
-
-  async function handleIntervalChange(days: number | null) {
-    setIntervalDays(days);
-
-    if (days === null) {
-      setNextDueAt(null);
-      return;
-    }
-
-    // Compute nextDueAt locally: lastServicedAt + intervalDays
-    if (asset.lastServicedAt) {
-      const due = new Date(asset.lastServicedAt);
-      due.setDate(due.getDate() + days);
-      setNextDueAt(due.toISOString());
-    }
-
-    try {
-      await fetch(`${API}/api/assets/${asset.id}/interval`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ intervalDays: days, jobberAccountId }),
-      });
-
-      setSaved(true);
-      if (savedTimer.current) clearTimeout(savedTimer.current);
-      savedTimer.current = setTimeout(() => setSaved(false), 2000);
-    } catch {
-      // silent — UI already updated optimistically
-    }
-  }
-
-  return (
-    <div className={`flex items-center justify-between gap-4 px-5 py-4 border-l-4 ${border} hover:bg-slate-50 transition-colors`}>
-      {/* Clickable left side */}
-      <Link
-        to={`/assets/${asset.id}`}
-        state={{ clientId, clientName }}
-        className="min-w-0 flex-1"
-      >
-        <p className="font-semibold text-slate-800 text-sm">{asset.displayName}</p>
-        <div className="flex items-center gap-4 mt-1.5">
-          <span className="text-xs text-slate-400">
-            Last: <span className="text-slate-600">{formatDate(asset.lastServicedAt)}</span>
-          </span>
-          <span className="text-xs text-slate-400">
-            Due: <span className="text-slate-600">{formatDate(nextDueAt)}</span>
-          </span>
-          <span className="text-xs text-slate-400">
-            {asset.jobCount} job{asset.jobCount !== 1 ? "s" : ""}
-          </span>
-        </div>
-      </Link>
-
-      {/* Right side controls — clicks here don't navigate */}
-      <div className="flex items-center gap-3 shrink-0">
-        {saved && (
-          <span className="text-xs text-green-600 font-medium">Saved ✓</span>
-        )}
-        <select
-          value={intervalDays ?? ""}
-          onChange={(e) => handleIntervalChange(e.target.value === "" ? null : Number(e.target.value))}
-          onClick={(e) => e.stopPropagation()}
-          className="text-xs border border-slate-200 rounded-lg px-2 py-1.5 text-slate-600 bg-white hover:border-slate-300 focus:outline-none focus:ring-2 focus:ring-blue-500 cursor-pointer"
-        >
-          {INTERVAL_OPTIONS.map((opt) => (
-            <option key={opt.days ?? "null"} value={opt.days ?? ""}>
-              {opt.label}
-            </option>
-          ))}
-        </select>
-        <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-semibold ${pill}`}>
-          {label}
-        </span>
-      </div>
-    </div>
-  );
 }
 
 // ---------- ClientDetail ----------
@@ -156,10 +56,16 @@ export default function ClientDetail() {
   const navigate = useNavigate();
   const jobberAccountId = localStorage.getItem("jobberAccountId") ?? "";
 
-  const [client, setClient] = useState<Client | null>(null);
-  const [assets, setAssets] = useState<Asset[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const [client, setClient]       = useState<Client | null>(null);
+  const [assets, setAssets]       = useState<Asset[]>([]);
+  const [loading, setLoading]     = useState(true);
+  const [error, setError]         = useState<string | null>(null);
+
+  // Client-level interval state
+  const [intervalDays, setIntervalDays]   = useState<number | null>(null);
+  const [saving, setSaving]               = useState(false);
+  const [saved, setSaved]                 = useState(false);
+  const savedTimer                        = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   async function loadData() {
     if (!jobberAccountId || !clientId) return;
@@ -169,6 +75,7 @@ export default function ClientDetail() {
     ]);
     const found = (clientData.clients as Client[]).find((c) => c.id === clientId) ?? null;
     setClient(found);
+    setIntervalDays(found?.serviceIntervalDays ?? null);
     setAssets(found
       ? (assetData.assets as Asset[]).filter((a) => a.jobberClientId === found.jobberClientId)
       : []);
@@ -179,6 +86,35 @@ export default function ClientDetail() {
     if (!clientId) { navigate("/dashboard"); return; }
     loadData().catch(() => setError("Failed to load client data.")).finally(() => setLoading(false));
   }, [clientId, jobberAccountId, navigate]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  async function handleIntervalChange(days: number | null) {
+    if (!clientId) return;
+    setIntervalDays(days);
+    setSaving(true);
+
+    try {
+      await fetch(`${API}/api/clients/${clientId}/interval`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ intervalDays: days, jobberAccountId }),
+      });
+
+      // Refresh assets so due dates and statuses update
+      const assetData = await fetch(`${API}/api/assets?jobberAccountId=${encodeURIComponent(jobberAccountId)}`).then((r) => r.json());
+      const found = client;
+      if (found) {
+        setAssets((assetData.assets as Asset[]).filter((a) => a.jobberClientId === found.jobberClientId));
+      }
+
+      setSaved(true);
+      if (savedTimer.current) clearTimeout(savedTimer.current);
+      savedTimer.current = setTimeout(() => setSaved(false), 2500);
+    } catch {
+      // silent — dropdown already shows new value
+    } finally {
+      setSaving(false);
+    }
+  }
 
   if (loading) {
     return (
@@ -221,11 +157,35 @@ export default function ClientDetail() {
       <main className="max-w-3xl mx-auto px-6 py-10">
 
         {/* Client header */}
-        <div className="mb-6">
-          <h1 className="text-xl font-semibold text-slate-800">{client.companyName ?? client.name}</h1>
-          {client.email && (
-            <p className="text-sm text-slate-400 mt-0.5">{client.email}</p>
-          )}
+        <div className="flex items-start justify-between gap-4 mb-8">
+          <div>
+            <h1 className="text-xl font-semibold text-slate-800">{client.companyName ?? client.name}</h1>
+            {client.email && (
+              <p className="text-sm text-slate-400 mt-0.5">{client.email}</p>
+            )}
+          </div>
+
+          {/* Client-level service interval */}
+          <div className="flex items-center gap-3 shrink-0">
+            {saving && <span className="text-xs text-slate-400">Saving…</span>}
+            {saved  && <span className="text-xs text-green-600 font-medium">Applied to all assets ✓</span>}
+            <div className="flex flex-col items-end gap-1">
+              <label className="text-xs font-semibold text-slate-400 uppercase tracking-wide">
+                Service interval
+              </label>
+              <select
+                value={intervalDays ?? ""}
+                onChange={(e) => handleIntervalChange(e.target.value === "" ? null : Number(e.target.value))}
+                className="text-sm border border-slate-200 rounded-lg px-3 py-1.5 text-slate-700 bg-white hover:border-slate-300 focus:outline-none focus:ring-2 focus:ring-blue-500 cursor-pointer"
+              >
+                {INTERVAL_OPTIONS.map((opt) => (
+                  <option key={opt.days ?? "null"} value={opt.days ?? ""}>
+                    {opt.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+          </div>
         </div>
 
         {/* Assets */}
@@ -238,15 +198,35 @@ export default function ClientDetail() {
           <p className="text-slate-400 text-sm">No assets tracked for this client.</p>
         ) : (
           <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden divide-y divide-slate-100">
-            {assets.map((asset) => (
-              <AssetRow
-                key={asset.id}
-                asset={asset}
-                clientId={client.id}
-                clientName={client.companyName ?? client.name}
-                jobberAccountId={jobberAccountId}
-              />
-            ))}
+            {assets.map((asset) => {
+              const { label, pill, border } = statusConfig[asset.status];
+              return (
+                <Link
+                  key={asset.id}
+                  to={`/assets/${asset.id}`}
+                  state={{ clientId: client.id, clientName: client.companyName ?? client.name }}
+                  className={`flex items-center justify-between gap-4 px-5 py-4 border-l-4 ${border} hover:bg-slate-50 transition-colors`}
+                >
+                  <div className="min-w-0">
+                    <p className="font-semibold text-slate-800 text-sm">{asset.displayName}</p>
+                    <div className="flex items-center gap-4 mt-1.5">
+                      <span className="text-xs text-slate-400">
+                        Last: <span className="text-slate-600">{formatDate(asset.lastServicedAt)}</span>
+                      </span>
+                      <span className="text-xs text-slate-400">
+                        Due: <span className="text-slate-600">{formatDate(asset.nextDueAt)}</span>
+                      </span>
+                      <span className="text-xs text-slate-400">
+                        {asset.jobCount} job{asset.jobCount !== 1 ? "s" : ""}
+                      </span>
+                    </div>
+                  </div>
+                  <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-semibold shrink-0 ${pill}`}>
+                    {label}
+                  </span>
+                </Link>
+              );
+            })}
           </div>
         )}
       </main>

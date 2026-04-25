@@ -215,7 +215,7 @@ router.post("/assets/:assetId/interval", async (req: Request, res: Response) => 
 
     const [updated] = await db
       .update(assets)
-      .set({ serviceIntervalDays: Math.round(intervalDays) })
+      .set({ serviceIntervalDays: Math.round(intervalDays), intervalOverridden: true })
       .where(and(eq(assets.id, String(assetId)), eq(assets.orgId, org.id)))
       .returning({ id: assets.id, identifier: assets.identifier });
 
@@ -460,12 +460,77 @@ router.get("/clients", async (req: Request, res: Response) => {
   try {
     const org = await requireOrg(jobberAccountId);
     const rows = await db
-      .select({ id: clients.id, name: clients.name, companyName: clients.companyName, email: clients.email, jobberClientId: clients.jobberClientId, portalToken: clients.portalToken })
+      .select({ id: clients.id, name: clients.name, companyName: clients.companyName, email: clients.email, jobberClientId: clients.jobberClientId, portalToken: clients.portalToken, serviceIntervalDays: clients.serviceIntervalDays })
       .from(clients)
       .where(eq(clients.orgId, org.id));
 
     res.json({ clients: rows });
   } catch (err) {
+    res.status(500).json({ error: String(err) });
+  }
+});
+
+// ---------- POST /api/clients/:clientId/interval ----------
+
+router.post("/clients/:clientId/interval", async (req: Request, res: Response) => {
+  const clientId = String(req.params.clientId);
+  const { intervalDays, jobberAccountId } = req.body as { intervalDays?: number | null; jobberAccountId?: string };
+
+  if (!jobberAccountId) {
+    res.status(400).json({ error: "Missing required body param: jobberAccountId" });
+    return;
+  }
+  if (intervalDays !== null && intervalDays !== undefined && (typeof intervalDays !== "number" || intervalDays < 1)) {
+    res.status(400).json({ error: "intervalDays must be a positive integer or null" });
+    return;
+  }
+
+  try {
+    const org = await requireOrg(jobberAccountId);
+
+    const [client] = await db
+      .select()
+      .from(clients)
+      .where(and(eq(clients.id, clientId), eq(clients.orgId, org.id)))
+      .limit(1);
+
+    if (!client) {
+      res.status(404).json({ error: "Client not found" });
+      return;
+    }
+
+    // Save interval to client
+    const days = intervalDays ?? null;
+    await db
+      .update(clients)
+      .set({ serviceIntervalDays: days })
+      .where(eq(clients.id, clientId));
+
+    // Apply to all non-overridden assets for this client
+    const MS_PER_DAY = 24 * 60 * 60 * 1000;
+    const clientAssets = await db
+      .select()
+      .from(assets)
+      .where(and(
+        eq(assets.orgId, org.id),
+        eq(assets.jobberClientId, client.jobberClientId),
+        eq(assets.intervalOverridden, false),
+      ));
+
+    for (const asset of clientAssets) {
+      let nextDueAt: Date | null = null;
+      if (days && asset.lastServicedAt) {
+        nextDueAt = new Date(new Date(asset.lastServicedAt).getTime() + days * MS_PER_DAY);
+      }
+      await db
+        .update(assets)
+        .set({ serviceIntervalDays: days, nextDueAt })
+        .where(eq(assets.id, asset.id));
+    }
+
+    res.json({ ok: true, applied: clientAssets.length });
+  } catch (err) {
+    console.error("[client-interval] error:", err);
     res.status(500).json({ error: String(err) });
   }
 });

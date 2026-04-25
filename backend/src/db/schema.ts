@@ -1,4 +1,4 @@
-import { pgTable, text, timestamp, integer, numeric, unique } from "drizzle-orm/pg-core";
+import { pgTable, text, timestamp, integer, numeric, unique, boolean } from "drizzle-orm/pg-core";
 
 export const jobberOrgs = pgTable("jobber_orgs", {
   id: text("id").primaryKey(),
@@ -19,6 +19,7 @@ export const clients = pgTable("clients", {
   companyName: text("company_name"),
   email: text("email"),
   portalToken: text("portal_token").unique(),
+  serviceIntervalDays: integer("service_interval_days"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 }, (t) => [
   unique("clients_org_jobber_client_unique").on(t.orgId, t.jobberClientId),
@@ -68,6 +69,7 @@ export const assets = pgTable("assets", {
   jobCount: integer("job_count").notNull().default(0),
   serviceIntervalDays: integer("service_interval_days"),
   nextDueAt: timestamp("next_due_at", { withTimezone: true }),
+  intervalOverridden: boolean("interval_overridden").notNull().default(false),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 }, (t) => [
   unique("assets_org_identifier_unique").on(t.orgId, t.identifier),
