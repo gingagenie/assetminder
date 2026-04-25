@@ -7,6 +7,13 @@ import { getValidToken } from "./jobberToken";
 const JOBBER_GRAPHQL_URL = "https://api.getjobber.com/api/graphql";
 const JOBBER_API_VERSION = "2025-04-16";
 const PAGE_SIZE = 50;
+const PAGE_DELAY_MS = 200;
+
+// ---------- helpers ----------
+
+function sleep(ms: number) {
+  return new Promise((r) => setTimeout(r, ms));
+}
 
 // ---------- GraphQL helper ----------
 
@@ -27,14 +34,23 @@ async function gql<T>(accessToken: string, query: string, variables: Record<stri
     throw new Error(`Jobber GraphQL HTTP ${res.status}: ${text}`);
   }
 
-  const json = JSON.parse(text) as { data?: T; errors?: { message: string }[] };
+  const json = JSON.parse(text) as {
+    data?: T;
+    errors?: { message: string }[];
+    extensions?: { cost?: { actualQueryCost?: number; requestedQueryCost?: number } };
+  };
+
+  const cost = json.extensions?.cost?.actualQueryCost;
+  if (cost !== undefined) {
+    console.log(`[sync] query cost: ${cost} points`);
+  }
 
   if (json.errors?.length) {
     const isThrottled = json.errors.some((e) => e.message.toLowerCase().includes("throttl"));
     if (isThrottled && attempt < 4) {
       const delay = attempt * 10000;
       console.log(`[sync] Throttled by Jobber, retrying in ${delay}ms (attempt ${attempt})...`);
-      await new Promise((r) => setTimeout(r, delay));
+      await sleep(delay);
       return gql<T>(accessToken, query, variables, attempt + 1);
     }
     throw new Error(`Jobber GraphQL errors: ${json.errors.map((e) => e.message).join(", ")}`);
@@ -85,7 +101,6 @@ interface JobberJobNode {
   instructions: string | null;
   client: { id: string } | null;
   customFields: JobberCustomField[];
-  lineItems: { nodes: JobberLineItem[] };
 }
 
 // ---------- Client sync ----------
@@ -151,6 +166,7 @@ async function syncClients(accessToken: string, orgId: string): Promise<number> 
     cursor = data.clients.pageInfo.endCursor;
 
     console.log(`[sync] clients page done, total so far: ${total}`);
+    if (cursor) await sleep(PAGE_DELAY_MS);
   } while (cursor);
 
   return total;
@@ -176,7 +192,7 @@ function customFieldValue(cf: JobberCustomField): string | null {
   return null;
 }
 
-// ---------- Job sync ----------
+// ---------- Job sync — Query 2: basic fields only (no nested lineItems) ----------
 
 const JOBS_QUERY = `
   query GetJobs($first: Int!, $after: String) {
@@ -200,9 +216,6 @@ const JOBS_QUERY = `
           ... on CustomFieldLink      { label valueLink { text url } }
           ... on CustomFieldTrueFalse { label valueTrueFalse }
         }
-        lineItems(first: 100) {
-          nodes { name quantity unitPrice totalCost }
-        }
       }
       pageInfo {
         hasNextPage
@@ -212,10 +225,38 @@ const JOBS_QUERY = `
   }
 `;
 
+// ---------- Query 3: per-job line items, only for new jobs ----------
+
+async function fetchLineItemsForJob(accessToken: string, jobberJobId: string): Promise<JobberLineItem[]> {
+  const query = `{
+    job(id: ${JSON.stringify(jobberJobId)}) {
+      lineItems(first: 50) {
+        nodes { name quantity unitPrice totalCost }
+      }
+    }
+  }`;
+
+  try {
+    const data = await gql<{ job?: { lineItems?: { nodes: JobberLineItem[] } } }>(accessToken, query);
+    return data.job?.lineItems?.nodes ?? [];
+  } catch (err) {
+    console.error(`[sync] fetchLineItemsForJob failed for ${jobberJobId}:`, String(err));
+    return [];
+  }
+}
+
 async function syncJobs(accessToken: string, orgId: string): Promise<{ jobsCount: number; fieldsCount: number }> {
+  // Pre-load existing jobberJobIds so we can skip line item fetching for known jobs
+  const existingRows = await db
+    .select({ jobberJobId: jobs.jobberJobId })
+    .from(jobs)
+    .where(eq(jobs.orgId, orgId));
+  const existingJobberIds = new Set(existingRows.map((r) => r.jobberJobId));
+
   let cursor: string | null = null;
   let jobsCount = 0;
   let fieldsCount = 0;
+  const newJobs: { internalId: string; jobberJobId: string }[] = [];
 
   do {
     const data: { jobs: { nodes: JobberJobNode[]; pageInfo: PageInfo } } = await gql(
@@ -228,7 +269,8 @@ async function syncJobs(accessToken: string, orgId: string): Promise<{ jobsCount
     if (nodes.length === 0) break;
 
     for (const j of nodes) {
-      console.log(`[sync] job raw:`, JSON.stringify({ id: j.id, createdAt: j.createdAt, completedAt: j.completedAt, jobStatus: j.jobStatus }));
+      const isNew = !existingJobberIds.has(j.id);
+
       const jobRow = {
         id: crypto.randomUUID(),
         orgId,
@@ -281,18 +323,8 @@ async function syncJobs(accessToken: string, orgId: string): Promise<{ jobsCount
         fieldsCount++;
       }
 
-      // Replace line items for this job
-      await db.delete(jobLineItems).where(eq(jobLineItems.jobId, internalJobId));
-      for (const li of j.lineItems?.nodes ?? []) {
-        if (!li.name) continue;
-        await db.insert(jobLineItems).values({
-          id: crypto.randomUUID(),
-          jobId: internalJobId,
-          name: li.name,
-          quantity: String(li.quantity ?? 0),
-          unitPrice: String(li.unitPrice ?? 0),
-          total: String(li.totalCost ?? 0),
-        });
+      if (isNew) {
+        newJobs.push({ internalId: internalJobId, jobberJobId: j.id });
       }
 
       jobsCount++;
@@ -300,7 +332,29 @@ async function syncJobs(accessToken: string, orgId: string): Promise<{ jobsCount
 
     cursor = data.jobs.pageInfo.endCursor;
     console.log(`[sync] jobs page done, total so far: ${jobsCount}`);
+    if (cursor) await sleep(PAGE_DELAY_MS);
   } while (cursor);
+
+  // Fetch line items only for newly-seen jobs
+  console.log(`[sync] fetching line items for ${newJobs.length} new jobs`);
+  for (let i = 0; i < newJobs.length; i++) {
+    const { internalId, jobberJobId } = newJobs[i];
+    const lineItems = await fetchLineItemsForJob(accessToken, jobberJobId);
+
+    for (const li of lineItems) {
+      if (!li.name) continue;
+      await db.insert(jobLineItems).values({
+        id: crypto.randomUUID(),
+        jobId: internalId,
+        name: li.name,
+        quantity: String(li.quantity ?? 0),
+        unitPrice: String(li.unitPrice ?? 0),
+        total: String(li.totalCost ?? 0),
+      });
+    }
+
+    if (i < newJobs.length - 1) await sleep(PAGE_DELAY_MS);
+  }
 
   return { jobsCount, fieldsCount };
 }

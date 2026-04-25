@@ -68,10 +68,6 @@ router.get("/me", async (req: Request, res: Response) => {
 
 // ---------- POST /api/sync ----------
 
-// Cooldown: prevent a new manual sync if one ran recently
-const SYNC_COOLDOWN_MS = 10 * 60 * 1000; // 10 minutes
-const lastSyncAt = new Map<string, number>();
-
 router.post("/sync", async (req: Request, res: Response) => {
   const { jobberAccountId } = req.body as { jobberAccountId?: string };
 
@@ -79,15 +75,6 @@ router.post("/sync", async (req: Request, res: Response) => {
     res.status(400).json({ error: "Missing required body param: jobberAccountId" });
     return;
   }
-
-  const last = lastSyncAt.get(jobberAccountId) ?? 0;
-  const elapsed = Date.now() - last;
-  if (elapsed < SYNC_COOLDOWN_MS) {
-    const waitSecs = Math.ceil((SYNC_COOLDOWN_MS - elapsed) / 1000);
-    res.status(429).json({ error: `Sync cooldown active. Try again in ${waitSecs}s.` });
-    return;
-  }
-  lastSyncAt.set(jobberAccountId, Date.now());
 
   // Respond immediately — full pipeline runs in background so the client
   // doesn't time out waiting for a potentially long sync.
