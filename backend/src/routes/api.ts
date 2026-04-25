@@ -787,7 +787,7 @@ router.get("/jobs/:jobId/pdf", async (req: Request, res: Response) => {
     res.setHeader("Content-Type", "application/pdf");
     res.setHeader(
       "Content-Disposition",
-      `attachment; filename="service-report-${job.jobNumber ?? jobId}.pdf"`
+      `inline; filename="service-report-${job.jobNumber ?? jobId}.pdf"`
     );
     doc.pipe(res);
 

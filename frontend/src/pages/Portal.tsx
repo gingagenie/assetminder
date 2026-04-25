@@ -213,12 +213,12 @@ export default function Portal() {
                               </div>
                               <div className="flex items-center gap-3 shrink-0">
                                 <p className="text-sm text-slate-400">{formatDate(job.completedAt)}</p>
-                                <a
-                                  href={`${API}/api/jobs/${job.id}/pdf`}
+                                <button
+                                  onClick={() => window.open(`${API}/api/jobs/${job.id}/pdf`, '_blank')}
                                   className="text-xs font-semibold px-2.5 py-1 rounded-lg border border-slate-200 text-slate-500 hover:bg-slate-50 hover:border-slate-300 transition-colors"
                                 >
                                   PDF
-                                </a>
+                                </button>
                               </div>
                             </div>
                           ))}
