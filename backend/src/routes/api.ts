@@ -17,7 +17,7 @@ const JOBBER_API_VERSION = "2025-04-16";
 
 // ---------- helpers ----------
 
-async function jobberGql<T>(accessToken: string, query: string): Promise<T> {
+async function jobberGql<T>(accessToken: string, query: string, attempt = 1): Promise<T> {
   const res = await fetch(JOBBER_GRAPHQL_URL, {
     method: "POST",
     headers: {
@@ -32,7 +32,17 @@ async function jobberGql<T>(accessToken: string, query: string): Promise<T> {
   if (!res.ok) throw new Error(`Jobber HTTP ${res.status}: ${text}`);
 
   const json = JSON.parse(text) as { data?: T; errors?: { message: string }[] };
-  if (json.errors?.length) throw new Error(json.errors.map((e) => e.message).join(", "));
+
+  if (json.errors?.length) {
+    const isThrottled = json.errors.some((e) => e.message.toLowerCase().includes("throttl"));
+    if (isThrottled && attempt < 4) {
+      const delay = attempt * 10000;
+      console.log(`[api] Throttled by Jobber, retrying in ${delay}ms (attempt ${attempt})...`);
+      await new Promise((r) => setTimeout(r, delay));
+      return jobberGql<T>(accessToken, query, attempt + 1);
+    }
+    throw new Error(json.errors.map((e) => e.message).join(", "));
+  }
 
   return json.data as T;
 }
@@ -583,7 +593,7 @@ async function fetchJobVisitData(accessToken: string, jobberJobId: string): Prom
       visits(first: 1) {
         nodes {
           instructions
-          assignedUsers {
+          assignedUsers(first: 1) {
             nodes { name { full } }
           }
         }
@@ -592,37 +602,18 @@ async function fetchJobVisitData(accessToken: string, jobberJobId: string): Prom
   }`;
 
   try {
-    const res = await fetch(JOBBER_GRAPHQL_URL, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${accessToken}`,
-        "X-JOBBER-GRAPHQL-VERSION": JOBBER_API_VERSION,
-      },
-      body: JSON.stringify({ query }),
-    });
-
-    const text = await res.text();
-    const json = JSON.parse(text) as {
-      data?: {
-        job?: {
-          visits?: {
-            nodes: {
-              instructions: string | null;
-              assignedUsers: { nodes: { name: { full: string } }[] };
-            }[];
-          };
+    const data = await jobberGql<{
+      job?: {
+        visits?: {
+          nodes: {
+            instructions: string | null;
+            assignedUsers: { nodes: { name: { full: string } }[] };
+          }[];
         };
       };
-      errors?: { message: string }[];
-    };
+    }>(accessToken, query);
 
-    if (json.errors?.length) {
-      console.error(`[visit] GraphQL errors:`, json.errors.map(e => e.message).join(", "));
-      return { workNotes: null, technicianName: null };
-    }
-
-    const visit = json.data?.job?.visits?.nodes?.[0];
+    const visit = data.job?.visits?.nodes?.[0];
     if (!visit) return { workNotes: null, technicianName: null };
 
     return {
@@ -640,38 +631,20 @@ async function fetchJobVisitData(accessToken: string, jobberJobId: string): Prom
 async function fetchJobExtras(accessToken: string, jobberJobId: string): Promise<{ jobNotes: string | null; lineItems: { name: string; quantity: string }[] }> {
   const query = `{
     job(id: ${JSON.stringify(jobberJobId)}) {
-      notes { nodes { ... on JobNote { message } } }
-      lineItems { nodes { name quantity } }
+      notes(first: 50) { nodes { ... on JobNote { message } } }
+      lineItems(first: 50) { nodes { name quantity } }
     }
   }`;
 
   try {
-    const res = await fetch(JOBBER_GRAPHQL_URL, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${accessToken}`,
-        "X-JOBBER-GRAPHQL-VERSION": JOBBER_API_VERSION,
-      },
-      body: JSON.stringify({ query }),
-    });
-
-    const text = await res.text();
-    const json = JSON.parse(text) as {
-      data?: {
-        job?: {
-          notes?: { nodes: { message?: string }[] };
-          lineItems?: { nodes: { name: string; quantity: number }[] };
-        };
+    const data = await jobberGql<{
+      job?: {
+        notes?: { nodes: { message?: string }[] };
+        lineItems?: { nodes: { name: string; quantity: number }[] };
       };
-      errors?: { message: string }[];
-    };
+    }>(accessToken, query);
 
-    if (json.errors?.length) {
-      console.error(`[extras] GraphQL errors:`, json.errors.map(e => e.message).join(", "));
-    }
-
-    const job = json.data?.job;
+    const job = data.job;
 
     const jobNotes = (job?.notes?.nodes ?? [])
       .map((n) => n.message?.trim())
@@ -694,10 +667,10 @@ async function fetchJobExtras(accessToken: string, jobberJobId: string): Promise
 async function fetchJobPhotos(accessToken: string, jobberJobId: string): Promise<{ fileName: string; url: string }[]> {
   const query = `{
     job(id: ${JSON.stringify(jobberJobId)}) {
-      notes {
+      notes(first: 50) {
         nodes {
           ... on JobNote {
-            fileAttachments { nodes { fileName url } }
+            fileAttachments(first: 50) { nodes { fileName url } }
           }
         }
       }
@@ -705,39 +678,18 @@ async function fetchJobPhotos(accessToken: string, jobberJobId: string): Promise
   }`;
 
   try {
-    const res = await fetch(JOBBER_GRAPHQL_URL, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${accessToken}`,
-        "X-JOBBER-GRAPHQL-VERSION": JOBBER_API_VERSION,
-      },
-      body: JSON.stringify({ query }),
-    });
-
-    const text = await res.text();
-    const json = JSON.parse(text) as {
-      data?: {
-        job?: {
-          notes?: { nodes: { fileAttachments?: { nodes: { fileName: string; url: string }[] } }[] };
-        };
+    const data = await jobberGql<{
+      job?: {
+        notes?: { nodes: { fileAttachments?: { nodes: { fileName: string; url: string }[] } }[] };
       };
-      errors?: { message: string }[];
-    };
+    }>(accessToken, query);
 
-    if (json.errors?.length) {
-      console.error(`[photos] GraphQL errors:`, json.errors.map(e => e.message).join(", "));
-      return [];
-    }
-
-    const rawNotes = json.data?.job?.notes?.nodes ?? [];
-    console.log(`[photos] raw notes nodes:`, JSON.stringify(rawNotes));
-
+    const rawNotes = data.job?.notes?.nodes ?? [];
     const attachments = rawNotes
       .flatMap((n) => n.fileAttachments?.nodes ?? [])
       .filter((a) => a.url);
-    console.log(`[photos] attachments:`, JSON.stringify(attachments));
 
+    console.log(`[photos] found ${attachments.length} attachment(s) for job ${jobberJobId}`);
     return attachments;
   } catch (err) {
     console.error(`[photos] FAILED for jobberJobId=${jobberJobId}:`, String(err));
@@ -785,17 +737,15 @@ router.get("/jobs/:jobId/pdf", async (req: Request, res: Response) => {
       if (client) clientName = client.companyName ?? client.name;
     }
 
-    // Live data from Jobber — two separate queries so extras can't break technician
+    // Live data from Jobber — run sequentially to avoid concurrent rate-limit hits.
+    // DB query is independent so it runs in parallel with the first Jobber call.
     const accessToken = await getValidToken(org.jobberAccountId);
-    // All data fetched before piping so PDF generation is fully synchronous.
-    const [dbLineItems, [{ workNotes: visitNotes, technicianName }, { jobNotes, lineItems: liveLineItems }], photoAttachments] = await Promise.all([
+    const [dbLineItems, { workNotes: visitNotes, technicianName }] = await Promise.all([
       db.select().from(jobLineItems).where(eq(jobLineItems.jobId, jobId)),
-      Promise.all([
-        fetchJobVisitData(accessToken, job.jobberJobId),
-        fetchJobExtras(accessToken, job.jobberJobId),
-      ]),
-      fetchJobPhotos(accessToken, job.jobberJobId),
+      fetchJobVisitData(accessToken, job.jobberJobId),
     ]);
+    const { jobNotes, lineItems: liveLineItems } = await fetchJobExtras(accessToken, job.jobberJobId);
+    const photoAttachments = await fetchJobPhotos(accessToken, job.jobberJobId);
     const noteParts = [visitNotes, jobNotes].filter(Boolean);
     const workNotes = noteParts.length > 0 ? noteParts.join("\n\n") : null;
     // Prefer DB line items (synced); fall back to live fetch if DB is empty
