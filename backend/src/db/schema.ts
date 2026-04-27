@@ -75,6 +75,12 @@ export const assets = pgTable("assets", {
   unique("assets_org_identifier_unique").on(t.orgId, t.identifier),
 ]);
 
+export const orgSettings = pgTable("org_settings", {
+  id: text("id").primaryKey(),
+  orgId: text("org_id").notNull().unique(),
+  serviceKeywords: text("service_keywords").array().notNull().default([]),
+});
+
 export type JobberOrg = typeof jobberOrgs.$inferSelect;
 export type NewJobberOrg = typeof jobberOrgs.$inferInsert;
 export type Client = typeof clients.$inferSelect;

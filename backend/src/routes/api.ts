@@ -8,7 +8,7 @@ import { groupAssets } from "../lib/groupAssets";
 import { calculateDueDates } from "../lib/calculateDueDates";
 import { deleteOrgData } from "../lib/deleteOrg";
 import { db } from "../db/client";
-import { jobberOrgs, assets, jobs, jobCustomFields, clients, jobLineItems } from "../db/schema";
+import { jobberOrgs, assets, jobs, jobCustomFields, clients, jobLineItems, orgSettings } from "../db/schema";
 
 const router = Router();
 
@@ -1006,6 +1006,65 @@ router.get("/jobs/:jobId/pdf", async (req: Request, res: Response) => {
   } catch (err) {
     console.error("[pdf] error:", err);
     if (!res.headersSent) res.status(500).json({ error: String(err) });
+  }
+});
+
+// ---------- GET /api/settings ----------
+
+router.get("/settings", async (req: Request, res: Response) => {
+  const { jobberAccountId } = req.query;
+
+  if (!jobberAccountId || typeof jobberAccountId !== "string") {
+    res.status(400).json({ error: "Missing required query param: jobberAccountId" });
+    return;
+  }
+
+  try {
+    const org = await requireOrg(jobberAccountId);
+    const [settings] = await db
+      .select()
+      .from(orgSettings)
+      .where(eq(orgSettings.orgId, org.id))
+      .limit(1);
+
+    res.json({ serviceKeywords: settings?.serviceKeywords ?? [] });
+  } catch (err) {
+    res.status(500).json({ error: String(err) });
+  }
+});
+
+// ---------- POST /api/settings ----------
+
+router.post("/settings", async (req: Request, res: Response) => {
+  const { jobberAccountId, serviceKeywords } = req.body as {
+    jobberAccountId?: string;
+    serviceKeywords?: string[];
+  };
+
+  if (!jobberAccountId) {
+    res.status(400).json({ error: "Missing required body param: jobberAccountId" });
+    return;
+  }
+  if (!Array.isArray(serviceKeywords)) {
+    res.status(400).json({ error: "serviceKeywords must be an array of strings" });
+    return;
+  }
+
+  try {
+    const org = await requireOrg(jobberAccountId);
+    const cleaned = serviceKeywords.map((k) => k.trim()).filter(Boolean);
+
+    await db
+      .insert(orgSettings)
+      .values({ id: crypto.randomUUID(), orgId: org.id, serviceKeywords: cleaned })
+      .onConflictDoUpdate({
+        target: orgSettings.orgId,
+        set: { serviceKeywords: cleaned },
+      });
+
+    res.json({ ok: true, serviceKeywords: cleaned });
+  } catch (err) {
+    res.status(500).json({ error: String(err) });
   }
 });
 

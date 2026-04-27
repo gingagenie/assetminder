@@ -57,6 +57,13 @@
       "when": 1777075200000,
       "tag": "0007_client_interval",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1777248000000,
+      "tag": "0008_org_settings",
+      "breakpoints": true
     }
   ]
 }

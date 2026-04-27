@@ -70,13 +70,19 @@ export default function Dashboard() {
   const [generatingFor, setGeneratingFor] = useState<string | null>(null);
   const [disconnecting, setDisconnecting] = useState(false);
 
+  // Settings state
+  const [keywordsInput, setKeywordsInput] = useState("");
+  const [savingKeywords, setSavingKeywords] = useState(false);
+  const [keywordsSaved, setKeywordsSaved] = useState(false);
+
   async function loadDashboard() {
     if (!jobberAccountId) return;
-    const [me, clientData, assetData] = await Promise.all([
+    const [me, clientData, assetData, settingsData] = await Promise.all([
       fetch(`${API}/api/me?jobberAccountId=${encodeURIComponent(jobberAccountId)}`).then((r) => r.json()),
       fetch(`${API}/api/clients?jobberAccountId=${encodeURIComponent(jobberAccountId)}`).then((r) => r.json()),
       fetch(`${API}/api/assets?jobberAccountId=${encodeURIComponent(jobberAccountId)}`).then((r) => r.json()),
-    ]) as [{ accountName: string }, { clients: Client[] }, { assets: { jobberClientId: string | null }[] }];
+      fetch(`${API}/api/settings?jobberAccountId=${encodeURIComponent(jobberAccountId)}`).then((r) => r.json()),
+    ]) as [{ accountName: string }, { clients: Client[] }, { assets: { jobberClientId: string | null }[] }, { serviceKeywords: string[] }];
 
     const countMap = new Map<string, number>();
     for (const asset of assetData.assets) {
@@ -88,6 +94,7 @@ export default function Dashboard() {
       ...c,
       assetCount: countMap.get(c.jobberClientId) ?? 0,
     })));
+    setKeywordsInput((settingsData.serviceKeywords ?? []).join(", "));
   }
 
   useEffect(() => {
@@ -122,6 +129,29 @@ export default function Dashboard() {
       alert("Failed to generate portal link.");
     } finally {
       setGeneratingFor(null);
+    }
+  }
+
+  async function handleSaveKeywords() {
+    if (!jobberAccountId) return;
+    setSavingKeywords(true);
+    setKeywordsSaved(false);
+    try {
+      const keywords = keywordsInput
+        .split(",")
+        .map((k) => k.trim())
+        .filter(Boolean);
+      await fetch(`${API}/api/settings`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ jobberAccountId, serviceKeywords: keywords }),
+      });
+      setKeywordsSaved(true);
+      setTimeout(() => setKeywordsSaved(false), 2500);
+    } catch {
+      // silent
+    } finally {
+      setSavingKeywords(false);
     }
   }
 
@@ -224,6 +254,38 @@ export default function Dashboard() {
             ))}
           </div>
         )}
+        {/* Settings */}
+        <div className="mt-12">
+          <div className="flex items-baseline gap-2 mb-4">
+            <h2 className="text-sm font-semibold text-slate-500 uppercase tracking-wide">Settings</h2>
+          </div>
+          <div className="bg-white rounded-xl shadow-sm border border-slate-200 px-6 py-5">
+            <p className="text-sm font-semibold text-slate-700 mb-1">Service keywords</p>
+            <p className="text-xs text-slate-400 mb-4">
+              Only jobs whose title contains one of these keywords will count toward service due dates.
+              Separate multiple keywords with commas. Leave blank to count all jobs.
+            </p>
+            <div className="flex items-center gap-3">
+              <input
+                type="text"
+                value={keywordsInput}
+                onChange={(e) => setKeywordsInput(e.target.value)}
+                onKeyDown={(e) => e.key === "Enter" && handleSaveKeywords()}
+                placeholder="e.g. Annual Service, PM, Preventative Maintenance"
+                className="flex-1 h-10 rounded-lg border border-slate-200 bg-slate-50 px-3 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-slate-300"
+              />
+              <button
+                onClick={handleSaveKeywords}
+                disabled={savingKeywords}
+                style={{ backgroundColor: savingKeywords ? undefined : "#1e293b" }}
+                className="h-10 px-4 rounded-lg text-sm font-semibold text-white bg-slate-700 hover:opacity-90 transition-opacity disabled:opacity-50 shrink-0"
+              >
+                {savingKeywords ? "Saving…" : keywordsSaved ? "Saved!" : "Save"}
+              </button>
+            </div>
+          </div>
+        </div>
+
       </main>
 
       {portalUrl && (
