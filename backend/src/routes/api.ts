@@ -1117,19 +1117,31 @@ router.post("/disconnect", async (req: Request, res: Response) => {
   }
 
   try {
-    // Best-effort: call Jobber's appDisconnect mutation to revoke the OAuth tokens.
-    // We do this before deleting local data so the token is still valid when we call it.
-    const accessToken = await getValidToken(jobberAccountId).catch(() => null);
+    // Call Jobber's appDisconnect mutation before deleting local data so the token is still valid.
+    let accessToken: string | null = null;
+    try {
+      accessToken = await getValidToken(jobberAccountId);
+      console.log(`[disconnect] got valid token for ${jobberAccountId}, calling appDisconnect mutation`);
+    } catch (err) {
+      console.warn(`[disconnect] could not get token for ${jobberAccountId} — skipping mutation:`, String(err));
+    }
+
     if (accessToken) {
-      await fetch(JOBBER_GRAPHQL_URL, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${accessToken}`,
-          "X-JOBBER-GRAPHQL-VERSION": JOBBER_API_VERSION,
-        },
-        body: JSON.stringify({ query: "mutation { appDisconnect { success } }" }),
-      }).catch((err) => console.warn("[disconnect] appDisconnect mutation failed:", err));
+      try {
+        const mutationRes = await fetch(JOBBER_GRAPHQL_URL, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${accessToken}`,
+            "X-JOBBER-GRAPHQL-VERSION": JOBBER_API_VERSION,
+          },
+          body: JSON.stringify({ query: "mutation { appDisconnect { success } }" }),
+        });
+        const body = await mutationRes.text();
+        console.log(`[disconnect] appDisconnect response — HTTP ${mutationRes.status}: ${body}`);
+      } catch (err) {
+        console.warn(`[disconnect] appDisconnect mutation network error:`, String(err));
+      }
     }
 
     // Delete all local data for this org
