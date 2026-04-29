@@ -53,6 +53,7 @@ export default function Portal() {
   const [data, setData] = useState<PortalData | null>(null);
   const [loading, setLoading] = useState(true);
   const [notFound, setNotFound] = useState(false);
+  const [search, setSearch] = useState("");
 
   // Expanded asset state + lazy-loaded jobs
   const [expandedAssets, setExpandedAssets] = useState<Set<string>>(new Set());
@@ -137,10 +138,32 @@ export default function Portal() {
 
         {/* Asset cards */}
         <div className="space-y-3">
+          {data.assets.length > 1 && (
+            <input
+              type="text"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Search by asset name or serial number..."
+              className="w-full px-4 py-2.5 rounded-lg border border-slate-200 bg-white text-sm text-slate-800 placeholder-slate-400 shadow-sm focus:outline-none focus:ring-2 focus:ring-slate-300"
+            />
+          )}
           {data.assets.length === 0 ? (
             <p className="text-slate-400 text-sm">No assets on record.</p>
-          ) : (
-            data.assets.map((asset) => {
+          ) : (() => {
+            const query = search.trim().toLowerCase();
+            const filtered = query
+              ? data.assets.filter(
+                  (a) =>
+                    a.displayName.toLowerCase().includes(query) ||
+                    a.identifier.toLowerCase().includes(query)
+                )
+              : data.assets;
+
+            if (filtered.length === 0) {
+              return <p className="text-slate-400 text-sm">No assets found.</p>;
+            }
+
+            return filtered.map((asset) => {
               const { label, pill, border } = statusConfig[asset.status];
               const isExpanded = expandedAssets.has(asset.id);
               const jobs = assetJobs[asset.id] ?? [];
@@ -228,8 +251,8 @@ export default function Portal() {
                   )}
                 </div>
               );
-            })
-          )}
+            });
+          })()}
         </div>
 
         {/* Footer */}
