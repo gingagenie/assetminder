@@ -57,6 +57,10 @@ async function requireOrg(jobberAccountId: string) {
   return org;
 }
 
+function isDisconnectError(err: unknown): boolean {
+  return String(err).includes("disconnected this app");
+}
+
 // ---------- GET /api/me ----------
 
 router.get("/me", async (req: Request, res: Response) => {
@@ -79,6 +83,12 @@ router.get("/me", async (req: Request, res: Response) => {
     const data = await jobberGql<{ account: { name: string } }>(accessToken, "{ account { name } }");
     res.json({ accountName: data.account.name });
   } catch (err) {
+    if (isDisconnectError(err)) {
+      console.log(`[sync] 401 disconnect detected — cleaning up org data for ${jobberAccountId}`);
+      await deleteOrgData(jobberAccountId);
+      res.status(401).json({ error: "Org disconnected" });
+      return;
+    }
     res.status(500).json({ error: String(err) });
   }
 });
@@ -631,6 +641,7 @@ router.get("/portal/:token", async (req: Request, res: Response) => {
 
 router.get("/jobs/:jobId/notes", async (req: Request, res: Response) => {
   const jobId = String(req.params.jobId);
+  let jobberAccountId: string | undefined;
 
   try {
     const [job] = await db.select({ id: jobs.id, jobberJobId: jobs.jobberJobId, orgId: jobs.orgId })
@@ -639,6 +650,8 @@ router.get("/jobs/:jobId/notes", async (req: Request, res: Response) => {
 
     const [org] = await db.select().from(jobberOrgs).where(eq(jobberOrgs.id, job.orgId)).limit(1);
     if (!org) { res.status(404).json({ error: "Org not found" }); return; }
+
+    jobberAccountId = org.jobberAccountId;
 
     const accessToken = await getValidToken(org.jobberAccountId);
     const [{ workNotes: visitNotes, technicianName }, { jobNotes }] = await Promise.all([
@@ -651,6 +664,12 @@ router.get("/jobs/:jobId/notes", async (req: Request, res: Response) => {
     res.json({ workNotes, technicianName });
   } catch (err) {
     console.error("[job-notes] error:", err);
+    if (isDisconnectError(err) && jobberAccountId) {
+      console.log(`[sync] 401 disconnect detected — cleaning up org data for ${jobberAccountId}`);
+      await deleteOrgData(jobberAccountId);
+      res.status(401).json({ error: "Org disconnected" });
+      return;
+    }
     res.status(500).json({ error: String(err) });
   }
 });
@@ -693,6 +712,7 @@ async function fetchJobVisitData(accessToken: string, jobberJobId: string): Prom
       technicianName: visit.assignedUsers?.nodes?.[0]?.name?.full ?? null,
     };
   } catch (err) {
+    if (isDisconnectError(err)) throw err;
     console.error(`[visit] FAILED for jobberJobId=${jobberJobId}:`, String(err));
     return { workNotes: null, technicianName: null };
   }
@@ -729,6 +749,7 @@ async function fetchJobExtras(accessToken: string, jobberJobId: string): Promise
 
     return { jobNotes, lineItems };
   } catch (err) {
+    if (isDisconnectError(err)) throw err;
     console.error(`[extras] FAILED for jobberJobId=${jobberJobId}:`, String(err));
     return { jobNotes: null, lineItems: [] };
   }
@@ -764,6 +785,7 @@ async function fetchJobPhotos(accessToken: string, jobberJobId: string): Promise
     console.log(`[photos] found ${attachments.length} attachment(s) for job ${jobberJobId}`);
     return attachments;
   } catch (err) {
+    if (isDisconnectError(err)) throw err;
     console.error(`[photos] FAILED for jobberJobId=${jobberJobId}:`, String(err));
     return [];
   }
@@ -790,6 +812,7 @@ async function fetchImageBuffer(url: string): Promise<Buffer | null> {
 
 router.get("/jobs/:jobId/pdf", async (req: Request, res: Response) => {
   const jobId = String(req.params.jobId);
+  let jobberAccountId: string | undefined;
 
   try {
     const [job] = await db.select().from(jobs).where(eq(jobs.id, jobId)).limit(1);
@@ -797,6 +820,8 @@ router.get("/jobs/:jobId/pdf", async (req: Request, res: Response) => {
 
     const [org] = await db.select().from(jobberOrgs).where(eq(jobberOrgs.id, job.orgId)).limit(1);
     if (!org) { res.status(404).json({ error: "Org not found" }); return; }
+
+    jobberAccountId = org.jobberAccountId;
 
     // Client name
     let clientName = "—";
@@ -1012,6 +1037,12 @@ router.get("/jobs/:jobId/pdf", async (req: Request, res: Response) => {
     }
   } catch (err) {
     console.error("[pdf] error:", err);
+    if (isDisconnectError(err) && jobberAccountId) {
+      console.log(`[sync] 401 disconnect detected — cleaning up org data for ${jobberAccountId}`);
+      await deleteOrgData(jobberAccountId);
+      if (!res.headersSent) res.status(401).json({ error: "Org disconnected" });
+      return;
+    }
     if (!res.headersSent) res.status(500).json({ error: String(err) });
   }
 });

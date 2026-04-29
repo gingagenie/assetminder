@@ -111,6 +111,23 @@ export default function Dashboard() {
     loadDashboard().catch(() => setError("Failed to load dashboard data.")).finally(() => setLoading(false));
   }, [jobberAccountId, navigate]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Poll /api/me every 30s — if the org has been disconnected, clear session and redirect
+  useEffect(() => {
+    if (!jobberAccountId) return;
+    const interval = setInterval(async () => {
+      try {
+        const res = await fetch(`${API}/api/me?jobberAccountId=${encodeURIComponent(jobberAccountId)}`);
+        if (!res.ok) {
+          localStorage.removeItem("jobberAccountId");
+          navigate("/");
+        }
+      } catch {
+        // network error — wait for next poll
+      }
+    }, 30_000);
+    return () => clearInterval(interval);
+  }, [jobberAccountId, navigate]); // eslint-disable-line react-hooks/exhaustive-deps
+
   async function handleDisconnect() {
     if (!jobberAccountId) return;
     if (!window.confirm("Disconnect AssetMinder from Jobber? This will delete all synced data and revoke access. This cannot be undone.")) return;
