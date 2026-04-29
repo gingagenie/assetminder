@@ -69,6 +69,7 @@ export default function Dashboard() {
   const [portalUrl, setPortalUrl] = useState<string | null>(null);
   const [generatingFor, setGeneratingFor] = useState<string | null>(null);
   const [disconnecting, setDisconnecting] = useState(false);
+  const [clientSearch, setClientSearch] = useState("");
 
   // Settings state
   const [keywordsInput, setKeywordsInput] = useState("");
@@ -211,7 +212,30 @@ export default function Dashboard() {
           <p className="text-slate-400 text-sm">No clients found. Run a sync to populate.</p>
         ) : (
           <div className="space-y-3">
-            {clientsList.map((client) => (
+            {clientsList.length >= 5 && (
+              <input
+                type="text"
+                value={clientSearch}
+                onChange={(e) => setClientSearch(e.target.value)}
+                placeholder="Search clients..."
+                className="w-full px-4 py-2.5 rounded-lg border border-slate-200 bg-white text-sm text-slate-800 placeholder-slate-400 shadow-sm focus:outline-none focus:ring-2 focus:ring-slate-300"
+              />
+            )}
+            {(() => {
+              const query = clientSearch.trim().toLowerCase();
+              const filtered = query
+                ? clientsList.filter(
+                    (c) =>
+                      (c.companyName ?? c.name).toLowerCase().includes(query) ||
+                      (c.email ?? "").toLowerCase().includes(query)
+                  )
+                : clientsList;
+
+              if (filtered.length === 0) {
+                return <p className="text-slate-400 text-sm">No clients found.</p>;
+              }
+
+              return filtered.map((client) => (
               <Link
                 key={client.id}
                 to={`/clients/${client.id}`}
@@ -251,7 +275,8 @@ export default function Dashboard() {
                   </div>
                 </div>
               </Link>
-            ))}
+              ));
+            })()}
           </div>
         )}
         {/* Settings */}
