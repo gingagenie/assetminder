@@ -21,12 +21,16 @@ const steps = [
 
 const benefits = [
   {
+    title: "A portal your clients will actually use",
+    body: "Your clients can see every service visit, every technician, every part used — from any device, any time. No chasing you for records. No digging through emails.",
+  },
+  {
     title: "Organised by equipment, not job date",
     body: "Jobber shows jobs in date order. AssetMinder groups them by asset so every service visit for one machine is in one place.",
   },
   {
-    title: "Compliance ready",
-    body: "When a client needs to prove service history for an audit or insurance claim, you send them a link. Done.",
+    title: "Compliance ready in seconds",
+    body: "WorkSafe audit? Insurance claim? Your client opens their portal and downloads a professional PDF service report. Done.",
   },
   {
     title: "Retain clients longer",
@@ -52,10 +56,10 @@ export default function Landing() {
             Built for Jobber users
           </div>
           <h1 className="text-4xl sm:text-5xl font-bold text-white tracking-tight leading-tight mb-6">
-            Your clients deserve to see<br className="hidden sm:block" /> their service history
+            Give your clients a portal<br className="hidden sm:block" /> they'll never forget
           </h1>
           <p className="text-slate-300 text-lg leading-relaxed mb-10 max-w-2xl mx-auto">
-            AssetMinder connects to Jobber and gives every client a branded portal showing the full service history of every asset you maintain — organised by equipment, not by job date.
+            AssetMinder connects to Jobber and gives every client a branded portal showing the full service history of every asset you maintain — date, technician, work carried out, photos, PDF download. One link. No login.
           </p>
           <a
             href={`${API}/auth/jobber/connect`}
@@ -99,7 +103,7 @@ export default function Landing() {
             <p className="text-xs font-semibold uppercase tracking-widest text-slate-400 mb-2">Why AssetMinder</p>
             <h2 className="text-2xl font-bold text-slate-800">The missing layer on top of Jobber</h2>
           </div>
-          <div className="grid sm:grid-cols-3 gap-6">
+          <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-6">
             {benefits.map((benefit) => (
               <div key={benefit.title} className="bg-white rounded-xl border border-slate-200 shadow-sm px-6 py-7">
                 <div className="h-1 w-8 rounded-full mb-5" style={{ backgroundColor: "#1e293b" }} />
