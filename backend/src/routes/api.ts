@@ -1135,7 +1135,7 @@ router.post("/disconnect", async (req: Request, res: Response) => {
             Authorization: `Bearer ${accessToken}`,
             "X-JOBBER-GRAPHQL-VERSION": JOBBER_API_VERSION,
           },
-          body: JSON.stringify({ query: "mutation { appDisconnect }" }),
+          body: JSON.stringify({ query: "mutation { appDisconnect { userErrors { message } } }" }),
         });
         const body = await mutationRes.text();
         console.log(`[disconnect] appDisconnect response — HTTP ${mutationRes.status}: ${body}`);
