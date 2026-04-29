@@ -78,8 +78,16 @@ export default function Dashboard() {
 
   async function loadDashboard() {
     if (!jobberAccountId) return;
+
+    const meRes = await fetch(`${API}/api/me?jobberAccountId=${encodeURIComponent(jobberAccountId)}`);
+    if (!meRes.ok) {
+      localStorage.removeItem("jobberAccountId");
+      navigate("/");
+      return;
+    }
+
     const [me, clientData, assetData, settingsData] = await Promise.all([
-      fetch(`${API}/api/me?jobberAccountId=${encodeURIComponent(jobberAccountId)}`).then((r) => r.json()),
+      meRes.json(),
       fetch(`${API}/api/clients?jobberAccountId=${encodeURIComponent(jobberAccountId)}`).then((r) => r.json()),
       fetch(`${API}/api/assets?jobberAccountId=${encodeURIComponent(jobberAccountId)}`).then((r) => r.json()),
       fetch(`${API}/api/settings?jobberAccountId=${encodeURIComponent(jobberAccountId)}`).then((r) => r.json()),

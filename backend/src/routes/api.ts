@@ -68,6 +68,13 @@ router.get("/me", async (req: Request, res: Response) => {
   }
 
   try {
+    await requireOrg(jobberAccountId);
+  } catch {
+    res.status(401).json({ error: "Org not found" });
+    return;
+  }
+
+  try {
     const accessToken = await getValidToken(jobberAccountId);
     const data = await jobberGql<{ account: { name: string } }>(accessToken, "{ account { name } }");
     res.json({ accountName: data.account.name });
