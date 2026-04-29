@@ -199,15 +199,13 @@ export default function ClientDetail() {
           <p className="text-slate-400 text-sm">No assets tracked for this client.</p>
         ) : (
           <>
-            {assets.length >= 5 && (
-              <input
-                type="text"
-                value={assetSearch}
-                onChange={(e) => setAssetSearch(e.target.value)}
-                placeholder="Search assets..."
-                className="w-full px-4 py-2.5 mb-3 rounded-lg border border-slate-200 bg-white text-sm text-slate-800 placeholder-slate-400 shadow-sm focus:outline-none focus:ring-2 focus:ring-slate-300"
-              />
-            )}
+            <input
+              type="text"
+              value={assetSearch}
+              onChange={(e) => setAssetSearch(e.target.value)}
+              placeholder="Search assets..."
+              className="w-full px-4 py-2.5 mb-3 rounded-lg border border-slate-200 bg-white text-sm text-slate-800 placeholder-slate-400 shadow-sm focus:outline-none focus:ring-2 focus:ring-slate-300"
+            />
             {(() => {
               const query = assetSearch.trim().toLowerCase();
               const filtered = query

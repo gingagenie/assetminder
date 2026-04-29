@@ -212,15 +212,13 @@ export default function Dashboard() {
           <p className="text-slate-400 text-sm">No clients found. Run a sync to populate.</p>
         ) : (
           <div className="space-y-3">
-            {clientsList.length >= 5 && (
-              <input
-                type="text"
-                value={clientSearch}
-                onChange={(e) => setClientSearch(e.target.value)}
-                placeholder="Search clients..."
-                className="w-full px-4 py-2.5 rounded-lg border border-slate-200 bg-white text-sm text-slate-800 placeholder-slate-400 shadow-sm focus:outline-none focus:ring-2 focus:ring-slate-300"
-              />
-            )}
+            <input
+              type="text"
+              value={clientSearch}
+              onChange={(e) => setClientSearch(e.target.value)}
+              placeholder="Search clients..."
+              className="w-full px-4 py-2.5 rounded-lg border border-slate-200 bg-white text-sm text-slate-800 placeholder-slate-400 shadow-sm focus:outline-none focus:ring-2 focus:ring-slate-300"
+            />
             {(() => {
               const query = clientSearch.trim().toLowerCase();
               const filtered = query

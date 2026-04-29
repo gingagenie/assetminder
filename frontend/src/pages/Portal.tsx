@@ -138,15 +138,13 @@ export default function Portal() {
 
         {/* Asset cards */}
         <div className="space-y-3">
-          {data.assets.length > 1 && (
-            <input
-              type="text"
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              placeholder="Search by asset name or serial number..."
-              className="w-full px-4 py-2.5 rounded-lg border border-slate-200 bg-white text-sm text-slate-800 placeholder-slate-400 shadow-sm focus:outline-none focus:ring-2 focus:ring-slate-300"
-            />
-          )}
+          <input
+            type="text"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Search by asset name or serial number..."
+            className="w-full px-4 py-2.5 rounded-lg border border-slate-200 bg-white text-sm text-slate-800 placeholder-slate-400 shadow-sm focus:outline-none focus:ring-2 focus:ring-slate-300"
+          />
           {data.assets.length === 0 ? (
             <p className="text-slate-400 text-sm">No assets on record.</p>
           ) : (() => {
