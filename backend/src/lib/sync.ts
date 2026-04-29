@@ -3,6 +3,7 @@ import { db } from "../db/client";
 import { jobberOrgs, clients, jobs, jobCustomFields, jobLineItems } from "../db/schema";
 import { eq } from "drizzle-orm";
 import { getValidToken } from "./jobberToken";
+import { deleteOrgData } from "./deleteOrg";
 
 const JOBBER_GRAPHQL_URL = "https://api.getjobber.com/api/graphql";
 const JOBBER_API_VERSION = "2025-04-16";
@@ -376,18 +377,27 @@ export async function syncOrg(jobberAccountId: string): Promise<SyncResult> {
 
   if (!org) throw new Error(`Org not found: ${jobberAccountId}`);
 
-  const accessToken = await getValidToken(jobberAccountId);
+  try {
+    const accessToken = await getValidToken(jobberAccountId);
 
-  console.log(`[sync] starting sync for org ${org.id}`);
+    console.log(`[sync] starting sync for org ${org.id}`);
 
-  const clientsUpserted = await syncClients(accessToken, org.id);
-  const { jobsCount, fieldsCount } = await syncJobs(accessToken, org.id);
+    const clientsUpserted = await syncClients(accessToken, org.id);
+    const { jobsCount, fieldsCount } = await syncJobs(accessToken, org.id);
 
-  console.log(`[sync] complete — clients: ${clientsUpserted}, jobs: ${jobsCount}, custom fields: ${fieldsCount}`);
+    console.log(`[sync] complete — clients: ${clientsUpserted}, jobs: ${jobsCount}, custom fields: ${fieldsCount}`);
 
-  return {
-    clientsUpserted,
-    jobsUpserted: jobsCount,
-    customFieldsUpserted: fieldsCount,
-  };
+    return {
+      clientsUpserted,
+      jobsUpserted: jobsCount,
+      customFieldsUpserted: fieldsCount,
+    };
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    if (msg.includes("disconnected this app")) {
+      console.log(`[sync] 401 disconnect detected — cleaning up org data`);
+      await deleteOrgData(jobberAccountId);
+    }
+    throw err;
+  }
 }

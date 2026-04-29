@@ -1,6 +1,6 @@
 import { eq, inArray } from "drizzle-orm";
 import { db } from "../db/client";
-import { jobberOrgs, clients, jobs, jobCustomFields, jobLineItems, assets } from "../db/schema";
+import { jobberOrgs, clients, jobs, jobCustomFields, jobLineItems, assets, orgSettings } from "../db/schema";
 
 /**
  * Permanently deletes all data for a Jobber org.
@@ -38,6 +38,7 @@ export async function deleteOrgData(jobberAccountId: string): Promise<void> {
   await db.delete(jobs).where(eq(jobs.orgId, orgId));
   await db.delete(clients).where(eq(clients.orgId, orgId));
   await db.delete(assets).where(eq(assets.orgId, orgId));
+  await db.delete(orgSettings).where(eq(orgSettings.orgId, orgId));
   await db.delete(jobberOrgs).where(eq(jobberOrgs.id, orgId));
 
   console.log(`[disconnect] deleted all data for org ${orgId} (jobberAccountId=${jobberAccountId})`);
