@@ -81,6 +81,15 @@ export const orgSettings = pgTable("org_settings", {
   serviceKeywords: text("service_keywords").array().notNull().default([]),
 });
 
+export const excludedPhotos = pgTable("excluded_photos", {
+  id: text("id").primaryKey(),
+  orgId: text("org_id").notNull(),
+  jobberJobId: text("jobber_job_id").notNull(),
+  filename: text("filename").notNull(),
+}, (t) => [
+  unique("excluded_photos_org_job_filename_unique").on(t.orgId, t.jobberJobId, t.filename),
+]);
+
 export type JobberOrg = typeof jobberOrgs.$inferSelect;
 export type NewJobberOrg = typeof jobberOrgs.$inferInsert;
 export type Client = typeof clients.$inferSelect;

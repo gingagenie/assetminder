@@ -6,6 +6,12 @@ import { Nav } from "@/components/Nav";
 
 // ---------- Types ----------
 
+interface JobPhoto {
+  fileName: string;
+  url: string;
+  excluded: boolean;
+}
+
 interface AssetDetail {
   id: string;
   identifier: string;
@@ -73,6 +79,8 @@ export default function AssetDetail() {
   const [expandedJobs, setExpandedJobs] = useState<Set<string>>(new Set());
   const [jobNotes, setJobNotes] = useState<Record<string, { workNotes: string | null; technicianName: string | null }>>({});
   const [loadingNotes, setLoadingNotes] = useState<Set<string>>(new Set());
+  const [jobPhotos, setJobPhotos] = useState<Record<string, JobPhoto[]>>({});
+  const [loadingPhotos, setLoadingPhotos] = useState<Set<string>>(new Set());
 
   async function toggleJob(id: string) {
     setExpandedJobs((prev) => {
@@ -81,7 +89,7 @@ export default function AssetDetail() {
       return next;
     });
 
-    // Lazy-load visit notes on first expand
+    // Lazy-load notes and photos on first expand
     if (!jobNotes[id]) {
       setLoadingNotes((prev) => new Set(prev).add(id));
       try {
@@ -93,6 +101,48 @@ export default function AssetDetail() {
       } finally {
         setLoadingNotes((prev) => { const n = new Set(prev); n.delete(id); return n; });
       }
+    }
+
+    if (!jobPhotos[id]) {
+      setLoadingPhotos((prev) => new Set(prev).add(id));
+      try {
+        console.log(`[photos] fetching for job ${id}`);
+        const res = await fetch(`${API}/api/jobs/${id}/photos`);
+        const data = await res.json() as { photos: JobPhoto[] };
+        console.log(`[photos] received for job ${id}:`, data);
+        setJobPhotos((prev) => ({ ...prev, [id]: data.photos }));
+      } catch (err) {
+        console.error(`[photos] fetch failed for job ${id}:`, err);
+        setJobPhotos((prev) => ({ ...prev, [id]: [] }));
+      } finally {
+        setLoadingPhotos((prev) => { const n = new Set(prev); n.delete(id); return n; });
+      }
+    }
+  }
+
+  async function togglePhotoExclusion(jobId: string, fileName: string, currentlyExcluded: boolean) {
+    const newExcluded = !currentlyExcluded;
+    // Optimistic update
+    setJobPhotos((prev) => ({
+      ...prev,
+      [jobId]: (prev[jobId] ?? []).map((p) =>
+        p.fileName === fileName ? { ...p, excluded: newExcluded } : p
+      ),
+    }));
+    try {
+      await fetch(`${API}/api/jobs/${jobId}/photos/exclude`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ filename: fileName, excluded: newExcluded }),
+      });
+    } catch {
+      // Revert on failure
+      setJobPhotos((prev) => ({
+        ...prev,
+        [jobId]: (prev[jobId] ?? []).map((p) =>
+          p.fileName === fileName ? { ...p, excluded: currentlyExcluded } : p
+        ),
+      }));
     }
   }
 
@@ -302,6 +352,8 @@ export default function AssetDetail() {
                       const isLoadingNotes = loadingNotes.has(job.id);
                       const workNotes = notes?.workNotes ?? null;
                       const techName = notes?.technicianName ?? job.technicianName;
+                      const photos = jobPhotos[job.id] ?? null;
+                      const isLoadingPhotos = loadingPhotos.has(job.id);
 
                       return (
                         <div className="border-t border-slate-100 px-6 py-5 space-y-5">
@@ -352,6 +404,48 @@ export default function AssetDetail() {
                             </div>
                           )}
 
+                          {/* Photos */}
+                          {isLoadingPhotos ? (
+                            <p className="text-sm text-slate-400">Loading photos…</p>
+                          ) : photos && photos.length > 0 ? (
+                            <div>
+                              <p className="text-xs font-semibold uppercase tracking-widest text-slate-400 mb-3">Photos</p>
+                              <div className="flex flex-wrap gap-3">
+                                {photos.map((photo) => {
+                                  const proxyUrl = `${API}/api/jobs/${job.id}/photos/image?url=${encodeURIComponent(photo.url)}`;
+                                  return (
+                                  <div
+                                    key={photo.fileName}
+                                    className={`flex flex-col items-center gap-1.5 transition-opacity ${photo.excluded ? "opacity-50" : ""}`}
+                                    style={{ maxWidth: 100 }}
+                                  >
+                                    <a href={proxyUrl} target="_blank" rel="noreferrer" onClick={(e) => e.stopPropagation()}>
+                                      <img
+                                        src={proxyUrl}
+                                        alt={photo.fileName}
+                                        className="rounded-md border border-slate-200 object-cover cursor-zoom-in"
+                                        style={{ height: 80, width: "auto", maxWidth: 100 }}
+                                      />
+                                    </a>
+                                    <p className="text-xs text-slate-400 w-full text-center truncate" title={photo.fileName}>
+                                      {photo.fileName}
+                                    </p>
+                                    <label className="flex items-center gap-1.5 cursor-pointer" onClick={(e) => e.stopPropagation()}>
+                                      <input
+                                        type="checkbox"
+                                        checked={!photo.excluded}
+                                        onChange={() => togglePhotoExclusion(job.id, photo.fileName, photo.excluded)}
+                                        className="h-3.5 w-3.5 rounded border-slate-300 text-slate-700 focus:ring-slate-400"
+                                      />
+                                      <span className="text-xs text-slate-400">Include</span>
+                                    </label>
+                                  </div>
+                                  );
+                                })}
+                              </div>
+                            </div>
+                          ) : null}
+
                           {/* Custom fields */}
                           {job.customFields.length > 0 && (
                             <div>
@@ -368,7 +462,7 @@ export default function AssetDetail() {
                           )}
 
                           {/* Empty state */}
-                          {!isLoadingNotes && !workNotes && !job.instructions && !techName && job.customFields.length === 0 && job.lineItems.length === 0 && (
+                          {!isLoadingNotes && !isLoadingPhotos && !workNotes && !job.instructions && !techName && job.customFields.length === 0 && job.lineItems.length === 0 && (!photos || photos.length === 0) && (
                             <p className="text-sm text-slate-400">No additional details available.</p>
                           )}
                         </div>

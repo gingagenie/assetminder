@@ -8,7 +8,7 @@ import { groupAssets } from "../lib/groupAssets";
 import { calculateDueDates } from "../lib/calculateDueDates";
 import { deleteOrgData } from "../lib/deleteOrg";
 import { db } from "../db/client";
-import { jobberOrgs, assets, jobs, jobCustomFields, clients, jobLineItems, orgSettings } from "../db/schema";
+import { jobberOrgs, assets, jobs, jobCustomFields, clients, jobLineItems, orgSettings, excludedPhotos } from "../db/schema";
 
 const router = Router();
 
@@ -755,14 +755,15 @@ async function fetchJobExtras(accessToken: string, jobberJobId: string): Promise
   }
 }
 
-// Fetches photo attachments from job notes — completely isolated so any
-// schema mismatch or network failure here cannot affect notes or line items.
+// Fetches photo attachments from non-internal job notes only.
 async function fetchJobPhotos(accessToken: string, jobberJobId: string): Promise<{ fileName: string; url: string }[]> {
   const query = `{
     job(id: ${JSON.stringify(jobberJobId)}) {
       notes(first: 50) {
         nodes {
           ... on JobNote {
+            message
+            internal
             fileAttachments(first: 50) { nodes { fileName url } }
           }
         }
@@ -773,15 +774,15 @@ async function fetchJobPhotos(accessToken: string, jobberJobId: string): Promise
   try {
     const data = await jobberGql<{
       job?: {
-        notes?: { nodes: { fileAttachments?: { nodes: { fileName: string; url: string }[] } }[] };
+        notes?: { nodes: { internal?: boolean; fileAttachments?: { nodes: { fileName: string; url: string }[] } }[] };
       };
     }>(accessToken, query);
 
     const rawNotes = data.job?.notes?.nodes ?? [];
     const attachments = rawNotes
+      .filter((n) => n.internal === false)
       .flatMap((n) => n.fileAttachments?.nodes ?? [])
       .filter((a) => a.url);
-
     console.log(`[photos] found ${attachments.length} attachment(s) for job ${jobberJobId}`);
     return attachments;
   } catch (err) {
@@ -807,6 +808,116 @@ async function fetchImageBuffer(url: string): Promise<Buffer | null> {
     return null;
   }
 }
+
+// ---------- GET /api/jobs/:jobId/photos/image?url=<encoded> ----------
+// Proxies a Jobber attachment URL through the backend using the org's access token.
+// The browser can't load Jobber attachment URLs directly — they require a bearer token.
+
+router.get("/jobs/:jobId/photos/image", async (req: Request, res: Response) => {
+  const jobId = String(req.params.jobId);
+  const rawUrl = String(req.query.url ?? "");
+
+  if (!rawUrl) { res.status(400).json({ error: "url query param required" }); return; }
+
+  try {
+    const [job] = await db.select().from(jobs).where(eq(jobs.id, jobId)).limit(1);
+    if (!job) { res.status(404).json({ error: "Job not found" }); return; }
+
+    const [org] = await db.select().from(jobberOrgs).where(eq(jobberOrgs.id, job.orgId)).limit(1);
+    if (!org) { res.status(404).json({ error: "Org not found" }); return; }
+
+    const accessToken = await getValidToken(org.jobberAccountId);
+    const upstream = await fetch(rawUrl, {
+      headers: { Authorization: `Bearer ${accessToken}` },
+    });
+
+    if (!upstream.ok) {
+      res.status(upstream.status).json({ error: `Upstream returned ${upstream.status}` });
+      return;
+    }
+
+    const contentType = upstream.headers.get("content-type") ?? "image/jpeg";
+    res.setHeader("Content-Type", contentType);
+    res.setHeader("Cache-Control", "private, max-age=300");
+
+    const buf = Buffer.from(await upstream.arrayBuffer());
+    res.send(buf);
+  } catch (err) {
+    console.error("[photo proxy] error:", err);
+    res.status(500).json({ error: String(err) });
+  }
+});
+
+// ---------- GET /api/jobs/:jobId/photos ----------
+
+router.get("/jobs/:jobId/photos", async (req: Request, res: Response) => {
+  const jobId = String(req.params.jobId);
+
+  try {
+    const [job] = await db.select().from(jobs).where(eq(jobs.id, jobId)).limit(1);
+    if (!job) { res.status(404).json({ error: "Job not found" }); return; }
+
+    const [org] = await db.select().from(jobberOrgs).where(eq(jobberOrgs.id, job.orgId)).limit(1);
+    if (!org) { res.status(404).json({ error: "Org not found" }); return; }
+
+    const accessToken = await getValidToken(org.jobberAccountId);
+    const [photoAttachments, exclusions] = await Promise.all([
+      fetchJobPhotos(accessToken, job.jobberJobId),
+      db.select().from(excludedPhotos).where(
+        and(eq(excludedPhotos.orgId, job.orgId), eq(excludedPhotos.jobberJobId, job.jobberJobId))
+      ),
+    ]);
+
+    const excludedSet = new Set(exclusions.map((e) => e.filename));
+    const photos = photoAttachments.map((a) => ({
+      fileName: a.fileName,
+      url: a.url,
+      excluded: excludedSet.has(a.fileName),
+    }));
+
+    res.json({ photos });
+  } catch (err) {
+    console.error("[photos endpoint] error:", err);
+    res.status(500).json({ error: String(err) });
+  }
+});
+
+// ---------- POST /api/jobs/:jobId/photos/exclude ----------
+
+router.post("/jobs/:jobId/photos/exclude", async (req: Request, res: Response) => {
+  const jobId = String(req.params.jobId);
+  const { filename, excluded } = req.body as { filename: string; excluded: boolean };
+
+  if (!filename || typeof excluded !== "boolean") {
+    res.status(400).json({ error: "filename and excluded (boolean) are required" });
+    return;
+  }
+
+  try {
+    const [job] = await db.select().from(jobs).where(eq(jobs.id, jobId)).limit(1);
+    if (!job) { res.status(404).json({ error: "Job not found" }); return; }
+
+    if (excluded) {
+      await db
+        .insert(excludedPhotos)
+        .values({ id: crypto.randomUUID(), orgId: job.orgId, jobberJobId: job.jobberJobId, filename })
+        .onConflictDoNothing();
+    } else {
+      await db
+        .delete(excludedPhotos)
+        .where(and(
+          eq(excludedPhotos.orgId, job.orgId),
+          eq(excludedPhotos.jobberJobId, job.jobberJobId),
+          eq(excludedPhotos.filename, filename),
+        ));
+    }
+
+    res.json({ ok: true });
+  } catch (err) {
+    console.error("[photos exclude] error:", err);
+    res.status(500).json({ error: String(err) });
+  }
+});
 
 // ---------- GET /api/jobs/:jobId/pdf ----------
 
@@ -842,7 +953,12 @@ router.get("/jobs/:jobId/pdf", async (req: Request, res: Response) => {
       fetchJobVisitData(accessToken, job.jobberJobId),
     ]);
     const { jobNotes, lineItems: liveLineItems } = await fetchJobExtras(accessToken, job.jobberJobId);
-    const photoAttachments = await fetchJobPhotos(accessToken, job.jobberJobId);
+    const [photoAttachments, photoExclusions] = await Promise.all([
+      fetchJobPhotos(accessToken, job.jobberJobId),
+      db.select().from(excludedPhotos).where(
+        and(eq(excludedPhotos.orgId, job.orgId), eq(excludedPhotos.jobberJobId, job.jobberJobId))
+      ),
+    ]);
     const noteParts = [visitNotes, jobNotes].filter(Boolean);
     const workNotes = noteParts.length > 0 ? noteParts.join("\n\n") : null;
     // Prefer DB line items (synced); fall back to live fetch if DB is empty
@@ -850,10 +966,13 @@ router.get("/jobs/:jobId/pdf", async (req: Request, res: Response) => {
       ? dbLineItems.map((li) => ({ name: li.name, quantity: li.quantity }))
       : liveLineItems;
 
+    const excludedFileNames = new Set(photoExclusions.map((e) => e.filename));
+    const includedPhotos = photoAttachments.filter((a) => !excludedFileNames.has(a.fileName));
+
     // Pre-fetch all images before piping — keeps PDF generation synchronous
     const images = (
       await Promise.all(
-        photoAttachments.map(async (a) => {
+        includedPhotos.map(async (a) => {
           const buf = await fetchImageBuffer(a.url);
           return buf ? { buf, fileName: a.fileName } : null;
         })
