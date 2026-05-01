@@ -755,7 +755,7 @@ async function fetchJobExtras(accessToken: string, jobberJobId: string): Promise
   }
 }
 
-// Fetches photo attachments from non-internal job notes only.
+// Fetches photo attachments from all job notes.
 async function fetchJobPhotos(accessToken: string, jobberJobId: string): Promise<{ fileName: string; url: string }[]> {
   const query = `{
     job(id: ${JSON.stringify(jobberJobId)}) {
@@ -763,7 +763,6 @@ async function fetchJobPhotos(accessToken: string, jobberJobId: string): Promise
         nodes {
           ... on JobNote {
             message
-            internal
             fileAttachments(first: 50) { nodes { fileName url } }
           }
         }
@@ -774,13 +773,12 @@ async function fetchJobPhotos(accessToken: string, jobberJobId: string): Promise
   try {
     const data = await jobberGql<{
       job?: {
-        notes?: { nodes: { internal?: boolean; fileAttachments?: { nodes: { fileName: string; url: string }[] } }[] };
+        notes?: { nodes: { fileAttachments?: { nodes: { fileName: string; url: string }[] } }[] };
       };
     }>(accessToken, query);
 
     const rawNotes = data.job?.notes?.nodes ?? [];
     const attachments = rawNotes
-      .filter((n) => n.internal === false)
       .flatMap((n) => n.fileAttachments?.nodes ?? [])
       .filter((a) => a.url);
     console.log(`[photos] found ${attachments.length} attachment(s) for job ${jobberJobId}`);
