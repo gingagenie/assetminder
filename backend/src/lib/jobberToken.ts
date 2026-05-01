@@ -1,6 +1,7 @@
 import { db } from "../db/client";
 import { jobberOrgs, type JobberOrg } from "../db/schema";
 import { eq } from "drizzle-orm";
+import { deleteOrgData } from "./deleteOrg";
 
 const JOBBER_TOKEN_URL = "https://api.getjobber.com/api/oauth/token";
 const REFRESH_THRESHOLD_MS = 5 * 60 * 1000; // 5 minutes
@@ -46,6 +47,13 @@ async function refreshToken(org: JobberOrg): Promise<string> {
 
   if (!res.ok) {
     const detail = await res.text();
+    // 400/401 from Jobber's OAuth server = refresh token permanently invalid (revoked or expired).
+    // Treat as a disconnect: clean up org data so polling stops flooding error logs.
+    if (res.status === 400 || res.status === 401) {
+      console.log(`[token] refresh rejected (${res.status}) for ${org.jobberAccountId} — treating as disconnect`);
+      await deleteOrgData(org.jobberAccountId);
+      throw new Error(`disconnected this app — token refresh rejected (${res.status}) for ${org.jobberAccountId}`);
+    }
     throw new Error(`Token refresh failed for ${org.jobberAccountId}: ${detail}`);
   }
 

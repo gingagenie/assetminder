@@ -118,6 +118,7 @@ export default function Dashboard() {
       try {
         const res = await fetch(`${API}/api/me?jobberAccountId=${encodeURIComponent(jobberAccountId)}`);
         if (!res.ok) {
+          clearInterval(interval);
           localStorage.removeItem("jobberAccountId");
           navigate("/");
         }
