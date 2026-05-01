@@ -807,43 +807,6 @@ async function fetchImageBuffer(url: string): Promise<Buffer | null> {
   }
 }
 
-// ---------- GET /api/photos/proxy?url=<encoded>&jobberAccountId=<id> ----------
-// Proxies a Jobber attachment URL through the backend using the org's OAuth token.
-// Jobber attachment URLs require a bearer token — browsers can't load them directly.
-
-router.get("/photos/proxy", async (req: Request, res: Response) => {
-  const rawUrl = String(req.query.url ?? "");
-  const jobberAccountId = String(req.query.jobberAccountId ?? "");
-
-  if (!rawUrl || !jobberAccountId) {
-    res.status(400).json({ error: "url and jobberAccountId query params are required" });
-    return;
-  }
-
-  try {
-    const accessToken = await getValidToken(jobberAccountId);
-    const upstream = await fetch(rawUrl, {
-      headers: { Authorization: `Bearer ${accessToken}` },
-    });
-
-    if (!upstream.ok) {
-      console.warn(`[photo proxy] upstream ${upstream.status} for ${rawUrl}`);
-      res.status(upstream.status).json({ error: `Upstream returned ${upstream.status}` });
-      return;
-    }
-
-    const contentType = upstream.headers.get("content-type") ?? "image/jpeg";
-    res.setHeader("Content-Type", contentType);
-    res.setHeader("Cache-Control", "private, max-age=300");
-
-    const buf = Buffer.from(await upstream.arrayBuffer());
-    res.send(buf);
-  } catch (err) {
-    console.error("[photo proxy] error:", err);
-    res.status(500).json({ error: String(err) });
-  }
-});
-
 // ---------- GET /api/jobs/:jobId/photos ----------
 
 router.get("/jobs/:jobId/photos", async (req: Request, res: Response) => {

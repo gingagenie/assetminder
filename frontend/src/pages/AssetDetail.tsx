@@ -411,17 +411,15 @@ export default function AssetDetail() {
                             <div>
                               <p className="text-xs font-semibold uppercase tracking-widest text-slate-400 mb-3">Photos</p>
                               <div className="flex flex-wrap gap-3">
-                                {photos.map((photo) => {
-                                  const proxyUrl = `${API}/api/photos/proxy?url=${encodeURIComponent(photo.url)}&jobberAccountId=${encodeURIComponent(jobberAccountId ?? "")}`;
-                                  return (
+                                {photos.map((photo) => (
                                   <div
                                     key={photo.fileName}
                                     className={`flex flex-col items-center gap-1.5 transition-opacity ${photo.excluded ? "opacity-50" : ""}`}
                                     style={{ maxWidth: 100 }}
                                   >
-                                    <a href={proxyUrl} target="_blank" rel="noreferrer" onClick={(e) => e.stopPropagation()}>
+                                    <a href={photo.url} target="_blank" rel="noreferrer" onClick={(e) => e.stopPropagation()}>
                                       <img
-                                        src={proxyUrl}
+                                        src={photo.url}
                                         alt={photo.fileName}
                                         className="rounded-md border border-slate-200 object-cover cursor-zoom-in"
                                         style={{ height: 80, width: "auto", maxWidth: 100 }}
@@ -440,8 +438,7 @@ export default function AssetDetail() {
                                       <span className="text-xs text-slate-400">Include</span>
                                     </label>
                                   </div>
-                                  );
-                                })}
+                                ))}
                               </div>
                             </div>
                           ) : null}
