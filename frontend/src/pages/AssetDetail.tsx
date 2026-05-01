@@ -412,7 +412,7 @@ export default function AssetDetail() {
                               <p className="text-xs font-semibold uppercase tracking-widest text-slate-400 mb-3">Photos</p>
                               <div className="flex flex-wrap gap-3">
                                 {photos.map((photo) => {
-                                  const proxyUrl = `${API}/api/jobs/${job.id}/photos/image?url=${encodeURIComponent(photo.url)}`;
+                                  const proxyUrl = `${API}/api/photos/proxy?url=${encodeURIComponent(photo.url)}&jobberAccountId=${encodeURIComponent(jobberAccountId ?? "")}`;
                                   return (
                                   <div
                                     key={photo.fileName}

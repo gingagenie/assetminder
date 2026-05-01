@@ -807,29 +807,27 @@ async function fetchImageBuffer(url: string): Promise<Buffer | null> {
   }
 }
 
-// ---------- GET /api/jobs/:jobId/photos/image?url=<encoded> ----------
-// Proxies a Jobber attachment URL through the backend using the org's access token.
-// The browser can't load Jobber attachment URLs directly — they require a bearer token.
+// ---------- GET /api/photos/proxy?url=<encoded>&jobberAccountId=<id> ----------
+// Proxies a Jobber attachment URL through the backend using the org's OAuth token.
+// Jobber attachment URLs require a bearer token — browsers can't load them directly.
 
-router.get("/jobs/:jobId/photos/image", async (req: Request, res: Response) => {
-  const jobId = String(req.params.jobId);
+router.get("/photos/proxy", async (req: Request, res: Response) => {
   const rawUrl = String(req.query.url ?? "");
+  const jobberAccountId = String(req.query.jobberAccountId ?? "");
 
-  if (!rawUrl) { res.status(400).json({ error: "url query param required" }); return; }
+  if (!rawUrl || !jobberAccountId) {
+    res.status(400).json({ error: "url and jobberAccountId query params are required" });
+    return;
+  }
 
   try {
-    const [job] = await db.select().from(jobs).where(eq(jobs.id, jobId)).limit(1);
-    if (!job) { res.status(404).json({ error: "Job not found" }); return; }
-
-    const [org] = await db.select().from(jobberOrgs).where(eq(jobberOrgs.id, job.orgId)).limit(1);
-    if (!org) { res.status(404).json({ error: "Org not found" }); return; }
-
-    const accessToken = await getValidToken(org.jobberAccountId);
+    const accessToken = await getValidToken(jobberAccountId);
     const upstream = await fetch(rawUrl, {
       headers: { Authorization: `Bearer ${accessToken}` },
     });
 
     if (!upstream.ok) {
+      console.warn(`[photo proxy] upstream ${upstream.status} for ${rawUrl}`);
       res.status(upstream.status).json({ error: `Upstream returned ${upstream.status}` });
       return;
     }
