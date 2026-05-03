@@ -121,6 +121,8 @@ export default function Privacy() {
           <Link to="/terms" className="hover:text-slate-600 transition-colors">Terms of Service</Link>
           {" · "}
           <Link to="/privacy" className="hover:text-slate-600 transition-colors">Privacy Policy</Link>
+          {" · "}
+          <Link to="/help" className="hover:text-slate-600 transition-colors">Help</Link>
         </p>
       </footer>
 

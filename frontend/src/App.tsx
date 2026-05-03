@@ -8,6 +8,7 @@ import ClientDetail from "@/pages/ClientDetail";
 import Portal from "@/pages/Portal";
 import Terms from "@/pages/Terms";
 import Privacy from "@/pages/Privacy";
+import Help from "@/pages/Help";
 
 function RequireAuth({ children }: { children: React.ReactNode }) {
   const id = localStorage.getItem("jobberAccountId");
@@ -27,6 +28,7 @@ export default function App() {
         <Route path="/portal/:token" element={<Portal />} />
         <Route path="/terms" element={<Terms />} />
         <Route path="/privacy" element={<Privacy />} />
+        <Route path="/help" element={<Help />} />
       </Routes>
     </HashRouter>
   );
