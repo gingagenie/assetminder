@@ -1,0 +1,43 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="240" height="48" viewBox="0 0 240 48">
+  <!--
+    AssetMinder horizontal logo — DARK version (for light backgrounds)
+    Icon: white AM on navy #1e293b square (48×48)
+    Text: navy #1e293b
+  -->
+
+  <!-- Icon background -->
+  <rect width="48" height="48" rx="7" fill="#1e293b"/>
+
+  <!--
+    AM monogram scaled from 384×384 → 48×48 (factor 0.125)
+    Stroke width: 24 × 0.125 = 3
+    A: legs (78→9.75, 297→37.13, 130→16.25, 87→10.88, 182→22.75)
+       crossbar (104→13, 156→19.5, 192→24)
+    M: (202→25.25, 306→38.25, 254→31.75, 171→21.38)
+  -->
+
+  <!-- A — left leg -->
+  <line x1="9.75"  y1="37.13" x2="16.25" y2="10.88"
+        stroke="white" stroke-width="3" stroke-linecap="round"/>
+  <!-- A — right leg -->
+  <line x1="16.25" y1="10.88" x2="22.75" y2="37.13"
+        stroke="white" stroke-width="3" stroke-linecap="round"/>
+  <!-- A — crossbar -->
+  <line x1="13"    y1="24"    x2="19.5"  y2="24"
+        stroke="white" stroke-width="3" stroke-linecap="round"/>
+
+  <!-- M -->
+  <polyline
+    points="25.25,37.13 25.25,10.88 31.75,21.38 38.25,10.88 38.25,37.13"
+    fill="none" stroke="white" stroke-width="3"
+    stroke-linecap="round" stroke-linejoin="round"/>
+
+  <!-- Wordmark -->
+  <text
+    x="62" y="34"
+    font-family="Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif"
+    font-size="27"
+    font-weight="600"
+    letter-spacing="-0.5"
+    fill="#1e293b">AssetMinder</text>
+</svg>
