@@ -76,6 +76,16 @@ export default function Dashboard() {
   const [savingKeywords, setSavingKeywords] = useState(false);
   const [keywordsSaved, setKeywordsSaved] = useState(false);
 
+  // Asset field state
+  const [assetFieldLabel, setAssetFieldLabel] = useState<string | null>(null);
+  const [assetFieldId, setAssetFieldId] = useState<string | null>(null);
+  const [showFieldPicker, setShowFieldPicker] = useState(false);
+  const [availableFields, setAvailableFields] = useState<{ id: string; label: string }[]>([]);
+  const [selectedFieldLabel, setSelectedFieldLabel] = useState("");
+  const [selectedFieldId, setSelectedFieldId] = useState("");
+  const [loadingFields, setLoadingFields] = useState(false);
+  const [savingField, setSavingField] = useState(false);
+
   async function loadDashboard() {
     if (!jobberAccountId) return;
 
@@ -86,12 +96,19 @@ export default function Dashboard() {
       return;
     }
 
-    const [me, clientData, assetData, settingsData] = await Promise.all([
+    const [me, clientData, assetData, settingsData, fieldData] = await Promise.all([
       meRes.json(),
       fetch(`${API}/api/clients?jobberAccountId=${encodeURIComponent(jobberAccountId)}`).then((r) => r.json()),
       fetch(`${API}/api/assets?jobberAccountId=${encodeURIComponent(jobberAccountId)}`).then((r) => r.json()),
       fetch(`${API}/api/settings?jobberAccountId=${encodeURIComponent(jobberAccountId)}`).then((r) => r.json()),
-    ]) as [{ accountName: string }, { clients: Client[] }, { assets: { jobberClientId: string | null }[] }, { serviceKeywords: string[] }];
+      fetch(`${API}/api/orgs/field-mapping?jobberAccountId=${encodeURIComponent(jobberAccountId)}`).then((r) => r.json()),
+    ]) as [
+      { accountName: string },
+      { clients: Client[] },
+      { assets: { jobberClientId: string | null }[] },
+      { serviceKeywords: string[] },
+      { assetIdentifierField: string | null; assetIdentifierFieldId: string | null },
+    ];
 
     const countMap = new Map<string, number>();
     for (const asset of assetData.assets) {
@@ -104,6 +121,8 @@ export default function Dashboard() {
       assetCount: countMap.get(c.jobberClientId) ?? 0,
     })));
     setKeywordsInput((settingsData.serviceKeywords ?? []).join(", "));
+    setAssetFieldLabel(fieldData.assetIdentifierField);
+    setAssetFieldId(fieldData.assetIdentifierFieldId);
   }
 
   useEffect(() => {
@@ -156,6 +175,42 @@ export default function Dashboard() {
       alert("Failed to generate portal link.");
     } finally {
       setGeneratingFor(null);
+    }
+  }
+
+  async function handleOpenFieldPicker() {
+    if (!jobberAccountId) return;
+    setShowFieldPicker(true);
+    setLoadingFields(true);
+    try {
+      const res = await fetch(`${API}/api/custom-fields?jobberAccountId=${encodeURIComponent(jobberAccountId)}`);
+      const data = (await res.json()) as { fields: { id: string; label: string }[] };
+      setAvailableFields(data.fields);
+      setSelectedFieldLabel(assetFieldLabel ?? "");
+      setSelectedFieldId(assetFieldId ?? "");
+    } catch {
+      // silent — fields array stays empty
+    } finally {
+      setLoadingFields(false);
+    }
+  }
+
+  async function handleSaveField() {
+    if (!jobberAccountId || !selectedFieldLabel) return;
+    setSavingField(true);
+    try {
+      await fetch(`${API}/api/orgs/field-mapping`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ jobberAccountId, fieldLabel: selectedFieldLabel, fieldId: selectedFieldId || undefined }),
+      });
+      setAssetFieldLabel(selectedFieldLabel);
+      setAssetFieldId(selectedFieldId || null);
+      setShowFieldPicker(false);
+    } catch {
+      // silent
+    } finally {
+      setSavingField(false);
     }
   }
 
@@ -308,6 +363,70 @@ export default function Dashboard() {
           <div className="flex items-baseline gap-2 mb-4">
             <h2 className="text-sm font-semibold text-slate-500 uppercase tracking-wide">Settings</h2>
           </div>
+
+          {/* Asset grouping field */}
+          <div className="bg-white rounded-xl shadow-sm border border-slate-200 px-6 py-5 mb-4">
+            <p className="text-sm font-semibold text-slate-700 mb-1">Asset grouping field</p>
+            <p className="text-xs text-slate-400 mb-4">
+              The Jobber custom field used to identify and group assets across jobs.
+            </p>
+            {!showFieldPicker ? (
+              <div className="flex items-center justify-between gap-4">
+                <span className="text-sm text-slate-700">
+                  {assetFieldLabel
+                    ? <><span className="font-medium">{assetFieldLabel}</span></>
+                    : <span className="text-slate-400 italic">Not configured</span>}
+                </span>
+                <button
+                  onClick={handleOpenFieldPicker}
+                  className="text-xs font-semibold px-3 py-1.5 rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-100 hover:border-slate-300 transition-colors shrink-0"
+                >
+                  Change
+                </button>
+              </div>
+            ) : (
+              <div className="space-y-3">
+                {loadingFields ? (
+                  <p className="text-sm text-slate-400">Loading fields…</p>
+                ) : availableFields.length === 0 ? (
+                  <p className="text-sm text-slate-400">No custom fields found on Jobs.</p>
+                ) : (
+                  <select
+                    value={selectedFieldLabel}
+                    onChange={(e) => {
+                      const label = e.target.value;
+                      setSelectedFieldLabel(label);
+                      setSelectedFieldId(availableFields.find((f) => f.label === label)?.id ?? "");
+                    }}
+                    className="w-full h-10 rounded-lg border border-slate-200 bg-slate-50 px-3 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-slate-300"
+                  >
+                    <option value="" disabled>Select a field…</option>
+                    {availableFields.map((f) => (
+                      <option key={f.id} value={f.label}>{f.label}</option>
+                    ))}
+                  </select>
+                )}
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={handleSaveField}
+                    disabled={savingField || !selectedFieldLabel}
+                    style={{ backgroundColor: savingField ? undefined : "#1e293b" }}
+                    className="h-9 px-4 rounded-lg text-sm font-semibold text-white bg-slate-700 hover:opacity-90 transition-opacity disabled:opacity-50"
+                  >
+                    {savingField ? "Saving…" : "Save"}
+                  </button>
+                  <button
+                    onClick={() => setShowFieldPicker(false)}
+                    className="h-9 px-4 rounded-lg text-sm text-slate-500 border border-slate-200 hover:bg-slate-50 transition-colors"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* Service keywords */}
           <div className="bg-white rounded-xl shadow-sm border border-slate-200 px-6 py-5">
             <p className="text-sm font-semibold text-slate-700 mb-1">Service keywords</p>
             <p className="text-xs text-slate-400 mb-4">

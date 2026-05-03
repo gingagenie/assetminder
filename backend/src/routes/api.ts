@@ -168,9 +168,10 @@ router.get("/custom-fields", async (req: Request, res: Response) => {
 // ---------- POST /api/orgs/field-mapping ----------
 
 router.post("/orgs/field-mapping", async (req: Request, res: Response) => {
-  const { jobberAccountId, fieldLabel } = req.body as {
+  const { jobberAccountId, fieldLabel, fieldId } = req.body as {
     jobberAccountId?: string;
     fieldLabel?: string;
+    fieldId?: string;
   };
 
   if (!jobberAccountId || !fieldLabel) {
@@ -183,10 +184,14 @@ router.post("/orgs/field-mapping", async (req: Request, res: Response) => {
 
     await db
       .update(jobberOrgs)
-      .set({ assetIdentifierField: fieldLabel, updatedAt: new Date() })
+      .set({
+        assetIdentifierField: fieldLabel,
+        assetIdentifierFieldId: fieldId ?? null,
+        updatedAt: new Date(),
+      })
       .where(eq(jobberOrgs.id, org.id));
 
-    res.json({ ok: true, jobberAccountId, assetIdentifierField: fieldLabel });
+    res.json({ ok: true, jobberAccountId, assetIdentifierField: fieldLabel, assetIdentifierFieldId: fieldId ?? null });
   } catch (err) {
     console.error("[field-mapping] error:", err);
     res.status(500).json({ error: String(err) });
@@ -205,7 +210,10 @@ router.get("/orgs/field-mapping", async (req: Request, res: Response) => {
 
   try {
     const org = await requireOrg(jobberAccountId);
-    res.json({ assetIdentifierField: org.assetIdentifierField ?? null });
+    res.json({
+      assetIdentifierField: org.assetIdentifierField ?? null,
+      assetIdentifierFieldId: org.assetIdentifierFieldId ?? null,
+    });
   } catch (err) {
     res.status(500).json({ error: String(err) });
   }

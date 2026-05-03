@@ -1,0 +1,1 @@
+ALTER TABLE "jobber_orgs" ADD COLUMN "asset_identifier_field_id" text;

@@ -15,7 +15,8 @@ export default function Onboarding() {
   const jobberAccountId = localStorage.getItem("jobberAccountId");
 
   const [fields, setFields] = useState<CustomField[]>([]);
-  const [selected, setSelected] = useState<string>("");
+  const [selectedLabel, setSelectedLabel] = useState<string>("");
+  const [selectedId, setSelectedId] = useState<string>("");
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -31,13 +32,13 @@ export default function Onboarding() {
   }, [jobberAccountId, navigate]);
 
   async function handleSubmit() {
-    if (!selected || !jobberAccountId) return;
+    if (!selectedLabel || !jobberAccountId) return;
     setSaving(true);
     try {
       const res = await fetch(`${API}/api/orgs/field-mapping`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ jobberAccountId, fieldLabel: selected }),
+        body: JSON.stringify({ jobberAccountId, fieldLabel: selectedLabel, fieldId: selectedId || undefined }),
       });
       if (!res.ok) throw new Error("Failed to save mapping");
       navigate("/dashboard");
@@ -66,7 +67,13 @@ export default function Onboarding() {
             </p>
           ) : (
             <>
-              <Select onValueChange={setSelected} value={selected}>
+              <Select
+                onValueChange={(label) => {
+                  setSelectedLabel(label);
+                  setSelectedId(fields.find((f) => f.label === label)?.id ?? "");
+                }}
+                value={selectedLabel}
+              >
                 <SelectTrigger>
                   <SelectValue placeholder="Select a custom field…" />
                 </SelectTrigger>
@@ -78,7 +85,7 @@ export default function Onboarding() {
                   ))}
                 </SelectContent>
               </Select>
-              <Button className="w-full" disabled={!selected || saving} onClick={handleSubmit}>
+              <Button className="w-full" disabled={!selectedLabel || saving} onClick={handleSubmit}>
                 {saving ? "Saving…" : "Continue"}
               </Button>
             </>
