@@ -19,6 +19,7 @@ export default function Onboarding() {
   const [selectedId, setSelectedId] = useState<string>("");
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [autoCreating, setAutoCreating] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -30,6 +31,25 @@ export default function Onboarding() {
       .catch(() => setError("Failed to load custom fields."))
       .finally(() => setLoading(false));
   }, [jobberAccountId, navigate]);
+
+  async function handleAutoCreate() {
+    if (!jobberAccountId) return;
+    setAutoCreating(true);
+    setError(null);
+    try {
+      const res = await fetch(`${API}/api/orgs/setup-asset-field`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ jobberAccountId }),
+      });
+      const data = (await res.json()) as { ok?: boolean; error?: string };
+      if (!res.ok || !data.ok) throw new Error(data.error ?? "Auto-create failed");
+      navigate("/dashboard");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to create field. Please try again.");
+      setAutoCreating(false);
+    }
+  }
 
   async function handleSubmit() {
     if (!selectedLabel || !jobberAccountId) return;
@@ -62,9 +82,14 @@ export default function Onboarding() {
           {loading ? (
             <p className="text-sm text-muted-foreground">Loading fields…</p>
           ) : fields.length === 0 ? (
-            <p className="text-sm text-muted-foreground">
-              No custom fields found on Jobs. Create one in Jobber under Settings → Custom Fields, then refresh.
-            </p>
+            <div className="space-y-3">
+              <p className="text-sm text-muted-foreground">
+                No custom fields found on Jobs. AssetMinder can create one called <strong>Asset ID</strong> in your Jobber account automatically.
+              </p>
+              <Button className="w-full" disabled={autoCreating} onClick={handleAutoCreate}>
+                {autoCreating ? "Creating field…" : "Create Asset ID field automatically"}
+              </Button>
+            </div>
           ) : (
             <>
               <Select

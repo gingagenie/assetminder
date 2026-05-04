@@ -219,6 +219,128 @@ router.get("/orgs/field-mapping", async (req: Request, res: Response) => {
   }
 });
 
+// ---------- POST /api/orgs/setup-asset-field ----------
+// Onboarding fallback: re-runs the auto-detect/create logic from the OAuth callback.
+
+const CUSTOM_FIELD_CONFIGS_QUERY_API = `
+  {
+    customFieldConfigurations(first: 100) {
+      nodes {
+        ... on CustomFieldConfigurationText     { id name appliesTo archived }
+        ... on CustomFieldConfigurationNumeric  { id name appliesTo archived }
+        ... on CustomFieldConfigurationDropdown { id name appliesTo archived }
+        ... on CustomFieldConfigurationArea     { id name appliesTo archived }
+        ... on CustomFieldConfigurationDate     { id name appliesTo archived }
+        ... on CustomFieldConfigurationTrue     { id name appliesTo archived }
+      }
+    }
+  }
+`;
+
+const ASSET_FIELD_NAME_RE = /serial|asset|equipment|\bid\b/i;
+
+router.post("/orgs/setup-asset-field", async (req: Request, res: Response) => {
+  const { jobberAccountId } = req.body as { jobberAccountId?: string };
+  if (!jobberAccountId) {
+    res.status(400).json({ error: "Missing jobberAccountId" });
+    return;
+  }
+
+  try {
+    const org = await requireOrg(jobberAccountId);
+    const accessToken = await getValidToken(jobberAccountId);
+
+    // 1. Fetch existing configs
+    const cfRes = await fetch(JOBBER_GRAPHQL_URL, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${accessToken}`,
+        "X-JOBBER-GRAPHQL-VERSION": JOBBER_API_VERSION,
+      },
+      body: JSON.stringify({ query: CUSTOM_FIELD_CONFIGS_QUERY_API }),
+    });
+    const cfText = await cfRes.text();
+    console.log(`[setup-asset-field] customFieldConfigurations response (HTTP ${cfRes.status}):`, cfText);
+    if (!cfRes.ok) throw new Error(`Jobber HTTP ${cfRes.status}: ${cfText}`);
+
+    const cfJson = JSON.parse(cfText) as {
+      data?: { customFieldConfigurations: { nodes: { id: string; name: string; appliesTo: string; archived: boolean }[] } };
+      errors?: { message: string }[];
+    };
+    if (cfJson.errors?.length) throw new Error(cfJson.errors.map((e) => e.message).join(", "));
+
+    const nodes = cfJson.data?.customFieldConfigurations?.nodes ?? [];
+    const jobFields = nodes.filter((n) => n.appliesTo?.toUpperCase().includes("JOB") && !n.archived);
+    console.log(`[setup-asset-field] ${jobFields.length} JOB field(s):`, jobFields.map((n) => n.name));
+
+    // 2. Check for a matching field
+    const match = jobFields.find((n) => ASSET_FIELD_NAME_RE.test(n.name));
+    if (match) {
+      console.log(`[setup-asset-field] Matched existing field: "${match.name}" (${match.id})`);
+      await db
+        .update(jobberOrgs)
+        .set({ assetIdentifierField: match.name, assetIdentifierFieldId: match.id, updatedAt: new Date() })
+        .where(eq(jobberOrgs.id, org.id));
+      res.json({ ok: true, fieldLabel: match.name, fieldId: match.id, created: false });
+      return;
+    }
+
+    // 3. No match — create "Asset ID"
+    const createMutation = `
+      mutation {
+        customFieldConfigurationCreate(input: {
+          name: "Asset ID"
+          fieldType: TEXT
+          appliesTo: JOB
+        }) {
+          customFieldConfiguration {
+            ... on CustomFieldConfigurationText { id name }
+          }
+          userErrors { message }
+        }
+      }
+    `;
+    const createRes = await fetch(JOBBER_GRAPHQL_URL, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${accessToken}`,
+        "X-JOBBER-GRAPHQL-VERSION": JOBBER_API_VERSION,
+      },
+      body: JSON.stringify({ query: createMutation }),
+    });
+    const createText = await createRes.text();
+    console.log(`[setup-asset-field] customFieldConfigurationCreate response (HTTP ${createRes.status}):`, createText);
+    if (!createRes.ok) throw new Error(`Jobber HTTP ${createRes.status}: ${createText}`);
+
+    const createJson = JSON.parse(createText) as {
+      data?: {
+        customFieldConfigurationCreate: {
+          customFieldConfiguration: { id: string; name: string } | null;
+          userErrors: { message: string }[];
+        };
+      };
+      errors?: { message: string }[];
+    };
+    if (createJson.errors?.length) throw new Error(createJson.errors.map((e) => e.message).join(", "));
+    const payload = createJson.data?.customFieldConfigurationCreate;
+    if (payload?.userErrors?.length) throw new Error(payload.userErrors.map((e) => e.message).join(", "));
+    const created = payload?.customFieldConfiguration;
+    if (!created) throw new Error(`Create returned no configuration. Full response: ${createText}`);
+
+    console.log(`[setup-asset-field] Created field: "${created.name}" (${created.id})`);
+    await db
+      .update(jobberOrgs)
+      .set({ assetIdentifierField: created.name, assetIdentifierFieldId: created.id, updatedAt: new Date() })
+      .where(eq(jobberOrgs.id, org.id));
+    res.json({ ok: true, fieldLabel: created.name, fieldId: created.id, created: true });
+  } catch (err) {
+    console.error("[setup-asset-field] error:", String(err));
+    res.status(500).json({ error: String(err) });
+  }
+});
+
 // ---------- POST /api/assets/:assetId/interval ----------
 
 router.post("/assets/:assetId/interval", async (req: Request, res: Response) => {

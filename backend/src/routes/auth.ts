@@ -29,6 +29,8 @@ const CUSTOM_FIELD_CONFIGS_QUERY = `
 const ASSET_FIELD_LABELS = /serial|asset|equipment|\bid\b/i;
 
 async function autoSetupAssetField(jobberAccountId: string, accessToken: string): Promise<void> {
+  console.log(`[asset-field] Running auto-setup for org ${jobberAccountId}`);
+
   // Query existing custom field configurations
   const cfRes = await fetch("https://api.getjobber.com/api/graphql", {
     method: "POST",
@@ -41,6 +43,8 @@ async function autoSetupAssetField(jobberAccountId: string, accessToken: string)
   });
 
   const cfText = await cfRes.text();
+  console.log(`[asset-field] customFieldConfigurations raw response (HTTP ${cfRes.status}):`, cfText);
+
   if (!cfRes.ok) throw new Error(`Jobber HTTP ${cfRes.status}: ${cfText}`);
 
   const cfJson = JSON.parse(cfText) as {
@@ -49,17 +53,18 @@ async function autoSetupAssetField(jobberAccountId: string, accessToken: string)
   };
 
   if (cfJson.errors?.length) {
-    throw new Error(cfJson.errors.map((e) => e.message).join(", "));
+    throw new Error(`GraphQL errors: ${cfJson.errors.map((e) => e.message).join(", ")}`);
   }
 
   const nodes = cfJson.data?.customFieldConfigurations?.nodes ?? [];
   const jobFields = nodes.filter((n) => n.appliesTo?.toUpperCase().includes("JOB") && !n.archived);
+  console.log(`[asset-field] Found ${nodes.length} total field(s), ${jobFields.length} on JOB:`, jobFields.map((n) => n.name));
 
   // Look for an existing field whose name matches the asset-related keywords
   const match = jobFields.find((n) => ASSET_FIELD_LABELS.test(n.name));
 
   if (match) {
-    console.log(`[callback] Found existing asset field: "${match.name}" (${match.id})`);
+    console.log(`[asset-field] Matched existing field: "${match.name}" (${match.id})`);
     await db
       .update(jobberOrgs)
       .set({ assetIdentifierField: match.name, assetIdentifierFieldId: match.id, updatedAt: new Date() })
@@ -68,11 +73,12 @@ async function autoSetupAssetField(jobberAccountId: string, accessToken: string)
   }
 
   // No suitable field found — create one
-  console.log(`[callback] No suitable asset field found, creating "Asset ID"…`);
+  // Note: Jobber's API uses "name" (not "label") for the input field — matches what the query returns.
+  console.log(`[asset-field] No suitable field found among ${jobFields.length} job field(s). Creating "Asset ID"…`);
   const createMutation = `
     mutation {
       customFieldConfigurationCreate(input: {
-        label: "Asset ID"
+        name: "Asset ID"
         fieldType: TEXT
         appliesTo: JOB
       }) {
@@ -95,6 +101,8 @@ async function autoSetupAssetField(jobberAccountId: string, accessToken: string)
   });
 
   const createText = await createRes.text();
+  console.log(`[asset-field] customFieldConfigurationCreate raw response (HTTP ${createRes.status}):`, createText);
+
   if (!createRes.ok) throw new Error(`Jobber HTTP ${createRes.status}: ${createText}`);
 
   const createJson = JSON.parse(createText) as {
@@ -108,18 +116,18 @@ async function autoSetupAssetField(jobberAccountId: string, accessToken: string)
   };
 
   if (createJson.errors?.length) {
-    throw new Error(createJson.errors.map((e) => e.message).join(", "));
+    throw new Error(`GraphQL errors: ${createJson.errors.map((e) => e.message).join(", ")}`);
   }
 
   const payload = createJson.data?.customFieldConfigurationCreate;
   if (payload?.userErrors?.length) {
-    throw new Error(payload.userErrors.map((e) => e.message).join(", "));
+    throw new Error(`userErrors: ${payload.userErrors.map((e) => e.message).join(", ")}`);
   }
 
   const created = payload?.customFieldConfiguration;
-  if (!created) throw new Error("customFieldConfigurationCreate returned no configuration");
+  if (!created) throw new Error(`customFieldConfigurationCreate returned no configuration. Full response: ${createText}`);
 
-  console.log(`[callback] Created asset field: "${created.name}" (${created.id})`);
+  console.log(`[asset-field] Created field: "${created.name}" (${created.id})`);
   await db
     .update(jobberOrgs)
     .set({ assetIdentifierField: created.name, assetIdentifierFieldId: created.id, updatedAt: new Date() })
@@ -247,7 +255,7 @@ router.get("/callback", async (req: Request, res: Response) => {
     try {
       await autoSetupAssetField(jobberAccountId, tokens.access_token);
     } catch (err) {
-      console.warn("[callback] Asset field auto-setup failed, user will configure manually:", err);
+      console.error("[asset-field] Auto-setup failed — user will land on onboarding:", String(err));
     }
   }
 
