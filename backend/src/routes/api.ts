@@ -290,10 +290,10 @@ router.post("/orgs/setup-asset-field", async (req: Request, res: Response) => {
     const createMutation = `
       mutation {
         customFieldConfigurationCreateText(input: {
-          label: "Asset ID"
-          appliesTo: JOB
-          readOnly: false
+          name: "Asset ID"
+          appliesTo: ALL_JOBS
           transferable: false
+          readOnly: false
         }) {
           customFieldConfiguration {
             ... on CustomFieldConfigurationText { id name }
