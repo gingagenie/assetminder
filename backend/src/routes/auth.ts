@@ -73,17 +73,17 @@ async function autoSetupAssetField(jobberAccountId: string, accessToken: string)
   }
 
   // No suitable field found — create one
-  // Note: Jobber's API uses "name" (not "label") for the input field — matches what the query returns.
   console.log(`[asset-field] No suitable field found among ${jobFields.length} job field(s). Creating "Asset ID"…`);
   const createMutation = `
     mutation {
-      customFieldConfigurationCreate(input: {
-        name: "Asset ID"
-        fieldType: TEXT
+      customFieldConfigurationCreateText(input: {
+        label: "Asset ID"
         appliesTo: JOB
+        readOnly: false
+        transferable: false
       }) {
         customFieldConfiguration {
-          ... on CustomFieldConfigurationText { id label }
+          ... on CustomFieldConfigurationText { id name }
         }
         userErrors { message }
       }
@@ -101,13 +101,13 @@ async function autoSetupAssetField(jobberAccountId: string, accessToken: string)
   });
 
   const createText = await createRes.text();
-  console.log(`[asset-field] customFieldConfigurationCreate raw response (HTTP ${createRes.status}):`, createText);
+  console.log(`[asset-field] customFieldConfigurationCreateText raw response (HTTP ${createRes.status}):`, createText);
 
   if (!createRes.ok) throw new Error(`Jobber HTTP ${createRes.status}: ${createText}`);
 
   const createJson = JSON.parse(createText) as {
     data?: {
-      customFieldConfigurationCreate: {
+      customFieldConfigurationCreateText: {
         customFieldConfiguration: { id: string; name: string } | null;
         userErrors: { message: string }[];
       };
@@ -119,13 +119,13 @@ async function autoSetupAssetField(jobberAccountId: string, accessToken: string)
     throw new Error(`GraphQL errors: ${createJson.errors.map((e) => e.message).join(", ")}`);
   }
 
-  const payload = createJson.data?.customFieldConfigurationCreate;
+  const payload = createJson.data?.customFieldConfigurationCreateText;
   if (payload?.userErrors?.length) {
     throw new Error(`userErrors: ${payload.userErrors.map((e) => e.message).join(", ")}`);
   }
 
   const created = payload?.customFieldConfiguration;
-  if (!created) throw new Error(`customFieldConfigurationCreate returned no configuration. Full response: ${createText}`);
+  if (!created) throw new Error(`customFieldConfigurationCreateText returned no configuration. Full response: ${createText}`);
 
   console.log(`[asset-field] Created field: "${created.name}" (${created.id})`);
   await db

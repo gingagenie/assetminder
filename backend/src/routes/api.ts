@@ -289,13 +289,14 @@ router.post("/orgs/setup-asset-field", async (req: Request, res: Response) => {
     // 3. No match — create "Asset ID"
     const createMutation = `
       mutation {
-        customFieldConfigurationCreate(input: {
-          name: "Asset ID"
-          fieldType: TEXT
+        customFieldConfigurationCreateText(input: {
+          label: "Asset ID"
           appliesTo: JOB
+          readOnly: false
+          transferable: false
         }) {
           customFieldConfiguration {
-            ... on CustomFieldConfigurationText { id label }
+            ... on CustomFieldConfigurationText { id name }
           }
           userErrors { message }
         }
@@ -311,12 +312,12 @@ router.post("/orgs/setup-asset-field", async (req: Request, res: Response) => {
       body: JSON.stringify({ query: createMutation }),
     });
     const createText = await createRes.text();
-    console.log(`[setup-asset-field] customFieldConfigurationCreate response (HTTP ${createRes.status}):`, createText);
+    console.log(`[setup-asset-field] customFieldConfigurationCreateText response (HTTP ${createRes.status}):`, createText);
     if (!createRes.ok) throw new Error(`Jobber HTTP ${createRes.status}: ${createText}`);
 
     const createJson = JSON.parse(createText) as {
       data?: {
-        customFieldConfigurationCreate: {
+        customFieldConfigurationCreateText: {
           customFieldConfiguration: { id: string; name: string } | null;
           userErrors: { message: string }[];
         };
@@ -324,7 +325,7 @@ router.post("/orgs/setup-asset-field", async (req: Request, res: Response) => {
       errors?: { message: string }[];
     };
     if (createJson.errors?.length) throw new Error(createJson.errors.map((e) => e.message).join(", "));
-    const payload = createJson.data?.customFieldConfigurationCreate;
+    const payload = createJson.data?.customFieldConfigurationCreateText;
     if (payload?.userErrors?.length) throw new Error(payload.userErrors.map((e) => e.message).join(", "));
     const created = payload?.customFieldConfiguration;
     if (!created) throw new Error(`Create returned no configuration. Full response: ${createText}`);
