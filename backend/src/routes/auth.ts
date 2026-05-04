@@ -15,12 +15,12 @@ const CUSTOM_FIELD_CONFIGS_QUERY = `
   {
     customFieldConfigurations(first: 100) {
       nodes {
-        ... on CustomFieldConfigurationText     { id name appliesTo archived }
-        ... on CustomFieldConfigurationNumeric  { id name appliesTo archived }
-        ... on CustomFieldConfigurationDropdown { id name appliesTo archived }
-        ... on CustomFieldConfigurationArea     { id name appliesTo archived }
-        ... on CustomFieldConfigurationDate     { id name appliesTo archived }
-        ... on CustomFieldConfigurationTrue     { id name appliesTo archived }
+        ... on CustomFieldConfigurationText      { id label appliesTo archived }
+        ... on CustomFieldConfigurationNumeric   { id label appliesTo archived }
+        ... on CustomFieldConfigurationDropdown  { id label appliesTo archived }
+        ... on CustomFieldConfigurationArea      { id label appliesTo archived }
+        ... on CustomFieldConfigurationLink      { id label appliesTo archived }
+        ... on CustomFieldConfigurationTrueFalse { id label appliesTo archived }
       }
     }
   }
@@ -48,7 +48,7 @@ async function autoSetupAssetField(jobberAccountId: string, accessToken: string)
   if (!cfRes.ok) throw new Error(`Jobber HTTP ${cfRes.status}: ${cfText}`);
 
   const cfJson = JSON.parse(cfText) as {
-    data?: { customFieldConfigurations: { nodes: { id: string; name: string; appliesTo: string; archived: boolean }[] } };
+    data?: { customFieldConfigurations: { nodes: { id: string; label: string; appliesTo: string; archived: boolean }[] } };
     errors?: { message: string }[];
   };
 
@@ -58,16 +58,16 @@ async function autoSetupAssetField(jobberAccountId: string, accessToken: string)
 
   const nodes = cfJson.data?.customFieldConfigurations?.nodes ?? [];
   const jobFields = nodes.filter((n) => n.appliesTo?.toUpperCase().includes("JOB") && !n.archived);
-  console.log(`[asset-field] Found ${nodes.length} total field(s), ${jobFields.length} on JOB:`, jobFields.map((n) => n.name));
+  console.log(`[asset-field] Found ${nodes.length} total field(s), ${jobFields.length} on JOB:`, jobFields.map((n) => n.label));
 
-  // Look for an existing field whose name matches the asset-related keywords
-  const match = jobFields.find((n) => ASSET_FIELD_LABELS.test(n.name));
+  // Look for an existing field whose label matches the asset-related keywords
+  const match = jobFields.find((n) => ASSET_FIELD_LABELS.test(n.label));
 
   if (match) {
-    console.log(`[asset-field] Matched existing field: "${match.name}" (${match.id})`);
+    console.log(`[asset-field] Matched existing field: "${match.label}" (${match.id})`);
     await db
       .update(jobberOrgs)
-      .set({ assetIdentifierField: match.name, assetIdentifierFieldId: match.id, updatedAt: new Date() })
+      .set({ assetIdentifierField: match.label, assetIdentifierFieldId: match.id, updatedAt: new Date() })
       .where(eq(jobberOrgs.jobberAccountId, jobberAccountId));
     return;
   }
@@ -83,7 +83,7 @@ async function autoSetupAssetField(jobberAccountId: string, accessToken: string)
         appliesTo: JOB
       }) {
         customFieldConfiguration {
-          ... on CustomFieldConfigurationText { id name }
+          ... on CustomFieldConfigurationText { id label }
         }
         userErrors { message }
       }
@@ -108,7 +108,7 @@ async function autoSetupAssetField(jobberAccountId: string, accessToken: string)
   const createJson = JSON.parse(createText) as {
     data?: {
       customFieldConfigurationCreate: {
-        customFieldConfiguration: { id: string; name: string } | null;
+        customFieldConfiguration: { id: string; label: string } | null;
         userErrors: { message: string }[];
       };
     };
@@ -127,10 +127,10 @@ async function autoSetupAssetField(jobberAccountId: string, accessToken: string)
   const created = payload?.customFieldConfiguration;
   if (!created) throw new Error(`customFieldConfigurationCreate returned no configuration. Full response: ${createText}`);
 
-  console.log(`[asset-field] Created field: "${created.name}" (${created.id})`);
+  console.log(`[asset-field] Created field: "${created.label}" (${created.id})`);
   await db
     .update(jobberOrgs)
-    .set({ assetIdentifierField: created.name, assetIdentifierFieldId: created.id, updatedAt: new Date() })
+    .set({ assetIdentifierField: created.label, assetIdentifierFieldId: created.id, updatedAt: new Date() })
     .where(eq(jobberOrgs.jobberAccountId, jobberAccountId));
 }
 

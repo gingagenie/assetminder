@@ -127,12 +127,12 @@ const CUSTOM_FIELD_CONFIGS_QUERY = `
   {
     customFieldConfigurations(first: 100) {
       nodes {
-        ... on CustomFieldConfigurationText      { id name appliesTo archived }
-        ... on CustomFieldConfigurationNumeric   { id name appliesTo archived }
-        ... on CustomFieldConfigurationDropdown  { id name appliesTo archived }
-        ... on CustomFieldConfigurationArea      { id name appliesTo archived }
-        ... on CustomFieldConfigurationLink      { id name appliesTo archived }
-        ... on CustomFieldConfigurationTrueFalse { id name appliesTo archived }
+        ... on CustomFieldConfigurationText      { id label appliesTo archived }
+        ... on CustomFieldConfigurationNumeric   { id label appliesTo archived }
+        ... on CustomFieldConfigurationDropdown  { id label appliesTo archived }
+        ... on CustomFieldConfigurationArea      { id label appliesTo archived }
+        ... on CustomFieldConfigurationLink      { id label appliesTo archived }
+        ... on CustomFieldConfigurationTrueFalse { id label appliesTo archived }
       }
     }
   }
@@ -150,13 +150,13 @@ router.get("/custom-fields", async (req: Request, res: Response) => {
     const accessToken = await getValidToken(jobberAccountId);
     const data = await jobberGql<{
       customFieldConfigurations: {
-        nodes: { id: string; name: string; appliesTo: string; archived: boolean }[];
+        nodes: { id: string; label: string; appliesTo: string; archived: boolean }[];
       };
     }>(accessToken, CUSTOM_FIELD_CONFIGS_QUERY);
 
     const fields = data.customFieldConfigurations.nodes
       .filter((n) => n.appliesTo?.toUpperCase().includes("JOB") && !n.archived)
-      .map((n) => ({ id: n.id, label: n.name }));
+      .map((n) => ({ id: n.id, label: n.label }));
 
     res.json({ fields });
   } catch (err) {
@@ -226,12 +226,12 @@ const CUSTOM_FIELD_CONFIGS_QUERY_API = `
   {
     customFieldConfigurations(first: 100) {
       nodes {
-        ... on CustomFieldConfigurationText     { id name appliesTo archived }
-        ... on CustomFieldConfigurationNumeric  { id name appliesTo archived }
-        ... on CustomFieldConfigurationDropdown { id name appliesTo archived }
-        ... on CustomFieldConfigurationArea     { id name appliesTo archived }
-        ... on CustomFieldConfigurationDate     { id name appliesTo archived }
-        ... on CustomFieldConfigurationTrue     { id name appliesTo archived }
+        ... on CustomFieldConfigurationText      { id label appliesTo archived }
+        ... on CustomFieldConfigurationNumeric   { id label appliesTo archived }
+        ... on CustomFieldConfigurationDropdown  { id label appliesTo archived }
+        ... on CustomFieldConfigurationArea      { id label appliesTo archived }
+        ... on CustomFieldConfigurationLink      { id label appliesTo archived }
+        ... on CustomFieldConfigurationTrueFalse { id label appliesTo archived }
       }
     }
   }
@@ -265,24 +265,24 @@ router.post("/orgs/setup-asset-field", async (req: Request, res: Response) => {
     if (!cfRes.ok) throw new Error(`Jobber HTTP ${cfRes.status}: ${cfText}`);
 
     const cfJson = JSON.parse(cfText) as {
-      data?: { customFieldConfigurations: { nodes: { id: string; name: string; appliesTo: string; archived: boolean }[] } };
+      data?: { customFieldConfigurations: { nodes: { id: string; label: string; appliesTo: string; archived: boolean }[] } };
       errors?: { message: string }[];
     };
     if (cfJson.errors?.length) throw new Error(cfJson.errors.map((e) => e.message).join(", "));
 
     const nodes = cfJson.data?.customFieldConfigurations?.nodes ?? [];
     const jobFields = nodes.filter((n) => n.appliesTo?.toUpperCase().includes("JOB") && !n.archived);
-    console.log(`[setup-asset-field] ${jobFields.length} JOB field(s):`, jobFields.map((n) => n.name));
+    console.log(`[setup-asset-field] ${jobFields.length} JOB field(s):`, jobFields.map((n) => n.label));
 
     // 2. Check for a matching field
-    const match = jobFields.find((n) => ASSET_FIELD_NAME_RE.test(n.name));
+    const match = jobFields.find((n) => ASSET_FIELD_NAME_RE.test(n.label));
     if (match) {
-      console.log(`[setup-asset-field] Matched existing field: "${match.name}" (${match.id})`);
+      console.log(`[setup-asset-field] Matched existing field: "${match.label}" (${match.id})`);
       await db
         .update(jobberOrgs)
-        .set({ assetIdentifierField: match.name, assetIdentifierFieldId: match.id, updatedAt: new Date() })
+        .set({ assetIdentifierField: match.label, assetIdentifierFieldId: match.id, updatedAt: new Date() })
         .where(eq(jobberOrgs.id, org.id));
-      res.json({ ok: true, fieldLabel: match.name, fieldId: match.id, created: false });
+      res.json({ ok: true, fieldLabel: match.label, fieldId: match.id, created: false });
       return;
     }
 
@@ -295,7 +295,7 @@ router.post("/orgs/setup-asset-field", async (req: Request, res: Response) => {
           appliesTo: JOB
         }) {
           customFieldConfiguration {
-            ... on CustomFieldConfigurationText { id name }
+            ... on CustomFieldConfigurationText { id label }
           }
           userErrors { message }
         }
@@ -317,7 +317,7 @@ router.post("/orgs/setup-asset-field", async (req: Request, res: Response) => {
     const createJson = JSON.parse(createText) as {
       data?: {
         customFieldConfigurationCreate: {
-          customFieldConfiguration: { id: string; name: string } | null;
+          customFieldConfiguration: { id: string; label: string } | null;
           userErrors: { message: string }[];
         };
       };
@@ -329,12 +329,12 @@ router.post("/orgs/setup-asset-field", async (req: Request, res: Response) => {
     const created = payload?.customFieldConfiguration;
     if (!created) throw new Error(`Create returned no configuration. Full response: ${createText}`);
 
-    console.log(`[setup-asset-field] Created field: "${created.name}" (${created.id})`);
+    console.log(`[setup-asset-field] Created field: "${created.label}" (${created.id})`);
     await db
       .update(jobberOrgs)
-      .set({ assetIdentifierField: created.name, assetIdentifierFieldId: created.id, updatedAt: new Date() })
+      .set({ assetIdentifierField: created.label, assetIdentifierFieldId: created.id, updatedAt: new Date() })
       .where(eq(jobberOrgs.id, org.id));
-    res.json({ ok: true, fieldLabel: created.name, fieldId: created.id, created: true });
+    res.json({ ok: true, fieldLabel: created.label, fieldId: created.id, created: true });
   } catch (err) {
     console.error("[setup-asset-field] error:", String(err));
     res.status(500).json({ error: String(err) });
