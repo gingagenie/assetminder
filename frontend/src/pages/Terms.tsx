@@ -87,8 +87,8 @@ export default function Terms() {
             <h2 className="text-base font-semibold text-slate-800 mb-3">9. Contact</h2>
             <p>
               If you have questions about these Terms of Service, please contact us at{" "}
-              <a href="mailto:support@assetminder.com.au" className="text-slate-800 font-medium underline underline-offset-2">
-                support@assetminder.com.au
+              <a href="mailto:support@minderapps.io" className="text-slate-800 font-medium underline underline-offset-2">
+                support@minderapps.io
               </a>.
             </p>
           </section>

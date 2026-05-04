@@ -106,8 +106,8 @@ export default function Privacy() {
             <h2 className="text-base font-semibold text-slate-800 mb-3">10. Contact</h2>
             <p>
               For privacy-related questions, data access requests, or deletion requests, please contact us at{" "}
-              <a href="mailto:support@assetminder.com.au" className="text-slate-800 font-medium underline underline-offset-2">
-                support@assetminder.com.au
+              <a href="mailto:support@minderapps.io" className="text-slate-800 font-medium underline underline-offset-2">
+                support@minderapps.io
               </a>.
             </p>
           </section>
