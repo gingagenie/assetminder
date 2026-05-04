@@ -364,8 +364,35 @@ export default function Dashboard() {
             <h2 className="text-sm font-semibold text-slate-500 uppercase tracking-wide">Settings</h2>
           </div>
 
-          {/* Asset grouping field */}
+          {/* Service keywords */}
           <div className="bg-white rounded-xl shadow-sm border border-slate-200 px-6 py-5 mb-4">
+            <p className="text-sm font-semibold text-slate-700 mb-1">Service keywords</p>
+            <p className="text-xs text-slate-400 mb-4">
+              Only jobs whose title contains one of these keywords will count toward service due dates.
+              Separate multiple keywords with commas. Leave blank to count all jobs.
+            </p>
+            <div className="flex items-center gap-3">
+              <input
+                type="text"
+                value={keywordsInput}
+                onChange={(e) => setKeywordsInput(e.target.value)}
+                onKeyDown={(e) => e.key === "Enter" && handleSaveKeywords()}
+                placeholder="e.g. Annual Service, PM, Preventative Maintenance"
+                className="flex-1 h-10 rounded-lg border border-slate-200 bg-slate-50 px-3 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-slate-300"
+              />
+              <button
+                onClick={handleSaveKeywords}
+                disabled={savingKeywords}
+                style={{ backgroundColor: savingKeywords ? undefined : "#1e293b" }}
+                className="h-10 px-4 rounded-lg text-sm font-semibold text-white bg-slate-700 hover:opacity-90 transition-opacity disabled:opacity-50 shrink-0"
+              >
+                {savingKeywords ? "Saving…" : keywordsSaved ? "Saved!" : "Save"}
+              </button>
+            </div>
+          </div>
+
+          {/* Asset grouping field */}
+          <div className="bg-white rounded-xl shadow-sm border border-slate-200 px-6 py-5">
             <p className="text-sm font-semibold text-slate-700 mb-1">Asset grouping field</p>
             <p className="text-xs text-slate-400 mb-4">
               The Jobber custom field used to identify and group assets across jobs.
@@ -424,33 +451,6 @@ export default function Dashboard() {
                 </div>
               </div>
             )}
-          </div>
-
-          {/* Service keywords */}
-          <div className="bg-white rounded-xl shadow-sm border border-slate-200 px-6 py-5">
-            <p className="text-sm font-semibold text-slate-700 mb-1">Service keywords</p>
-            <p className="text-xs text-slate-400 mb-4">
-              Only jobs whose title contains one of these keywords will count toward service due dates.
-              Separate multiple keywords with commas. Leave blank to count all jobs.
-            </p>
-            <div className="flex items-center gap-3">
-              <input
-                type="text"
-                value={keywordsInput}
-                onChange={(e) => setKeywordsInput(e.target.value)}
-                onKeyDown={(e) => e.key === "Enter" && handleSaveKeywords()}
-                placeholder="e.g. Annual Service, PM, Preventative Maintenance"
-                className="flex-1 h-10 rounded-lg border border-slate-200 bg-slate-50 px-3 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-slate-300"
-              />
-              <button
-                onClick={handleSaveKeywords}
-                disabled={savingKeywords}
-                style={{ backgroundColor: savingKeywords ? undefined : "#1e293b" }}
-                className="h-10 px-4 rounded-lg text-sm font-semibold text-white bg-slate-700 hover:opacity-90 transition-opacity disabled:opacity-50 shrink-0"
-              >
-                {savingKeywords ? "Saving…" : keywordsSaved ? "Saved!" : "Save"}
-              </button>
-            </div>
           </div>
         </div>
 
