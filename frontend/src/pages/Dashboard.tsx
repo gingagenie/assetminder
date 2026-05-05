@@ -89,8 +89,23 @@ export default function Dashboard() {
   async function loadDashboard() {
     if (!jobberAccountId) return;
 
+    // Check subscription status first — this endpoint is never blocked by the subscription middleware
+    const billingRes = await fetch(`${API}/api/billing/status?jobberAccountId=${encodeURIComponent(jobberAccountId)}`);
+    if (billingRes.ok) {
+      const billing = (await billingRes.json()) as { subscriptionStatus: string; trialDaysLeft: number; trialExpired: boolean };
+      if (billing.trialExpired || billing.subscriptionStatus === "expired") {
+        window.dispatchEvent(new CustomEvent("subscription_required"));
+        return;
+      }
+    }
+
     const meRes = await fetch(`${API}/api/me?jobberAccountId=${encodeURIComponent(jobberAccountId)}`);
     if (!meRes.ok) {
+      if (meRes.status === 402) {
+        // Subscription lapsed between the status check and this call — show wall, keep session
+        window.dispatchEvent(new CustomEvent("subscription_required"));
+        return;
+      }
       localStorage.removeItem("jobberAccountId");
       navigate("/");
       return;

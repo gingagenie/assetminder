@@ -8,6 +8,10 @@ export const jobberOrgs = pgTable("jobber_orgs", {
   expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
   assetIdentifierField: text("asset_identifier_field"),
   assetIdentifierFieldId: text("asset_identifier_field_id"),
+  trialStartedAt: timestamp("trial_started_at", { withTimezone: true }),
+  subscriptionStatus: text("subscription_status").notNull().default("trial"),
+  stripeCustomerId: text("stripe_customer_id"),
+  stripeSubscriptionId: text("stripe_subscription_id"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 });

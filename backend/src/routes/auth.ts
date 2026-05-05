@@ -240,12 +240,15 @@ router.get("/callback", async (req: Request, res: Response) => {
       })
       .where(eq(jobberOrgs.jobberAccountId, jobberAccountId));
   } else {
+    const now = new Date();
     await db.insert(jobberOrgs).values({
       id: crypto.randomUUID(),
       jobberAccountId,
       accessToken: tokens.access_token,
       refreshToken: tokens.refresh_token,
       expiresAt,
+      trialStartedAt: now,
+      subscriptionStatus: "trial",
     });
   }
 

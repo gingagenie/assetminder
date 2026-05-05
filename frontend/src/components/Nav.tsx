@@ -10,7 +10,23 @@ interface NavProps {
 export function Nav({ left, right, onSyncComplete }: NavProps) {
   const [syncing, setSyncing] = useState(false);
   const [syncError, setSyncError] = useState<string | null>(null);
+  const [openingPortal, setOpeningPortal] = useState(false);
   const jobberAccountId = localStorage.getItem("jobberAccountId");
+
+  async function handleManageBilling() {
+    if (!jobberAccountId) return;
+    setOpeningPortal(true);
+    try {
+      const res = await fetch(`${API}/api/billing/portal-url?jobberAccountId=${encodeURIComponent(jobberAccountId)}`);
+      if (!res.ok) return;
+      const data = (await res.json()) as { url?: string };
+      if (data.url) window.open(data.url, "_blank", "noopener,noreferrer");
+    } catch {
+      // silent
+    } finally {
+      setOpeningPortal(false);
+    }
+  }
 
   async function handleSync() {
     if (!jobberAccountId) return;
@@ -45,6 +61,13 @@ export function Nav({ left, right, onSyncComplete }: NavProps) {
           </div>
           <div className="flex items-center gap-3 shrink-0">
             {right}
+            <button
+              onClick={handleManageBilling}
+              disabled={openingPortal}
+              className="text-xs text-slate-400 hover:text-white transition-colors disabled:opacity-50 hidden sm:block"
+            >
+              {openingPortal ? "Opening…" : "Billing"}
+            </button>
             <button
               onClick={handleSync}
               disabled={syncing}
