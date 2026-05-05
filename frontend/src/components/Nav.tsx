@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { API } from "@/lib/api";
 
 interface NavProps {
@@ -11,7 +11,18 @@ export function Nav({ left, right, onSyncComplete }: NavProps) {
   const [syncing, setSyncing] = useState(false);
   const [syncError, setSyncError] = useState<string | null>(null);
   const [openingPortal, setOpeningPortal] = useState(false);
+  const [hasActiveSubscription, setHasActiveSubscription] = useState(false);
   const jobberAccountId = localStorage.getItem("jobberAccountId");
+
+  useEffect(() => {
+    if (!jobberAccountId) return;
+    fetch(`${API}/api/billing/status?jobberAccountId=${encodeURIComponent(jobberAccountId)}`)
+      .then((r) => r.json())
+      .then((data: { subscriptionStatus?: string }) => {
+        setHasActiveSubscription(data.subscriptionStatus === "active");
+      })
+      .catch(() => { /* silent — button stays hidden */ });
+  }, [jobberAccountId]);
 
   async function handleManageBilling() {
     if (!jobberAccountId) return;
@@ -61,13 +72,15 @@ export function Nav({ left, right, onSyncComplete }: NavProps) {
           </div>
           <div className="flex items-center gap-3 shrink-0">
             {right}
-            <button
-              onClick={handleManageBilling}
-              disabled={openingPortal}
-              className="text-xs text-slate-400 hover:text-white transition-colors disabled:opacity-50 hidden sm:block"
-            >
-              {openingPortal ? "Opening…" : "Billing"}
-            </button>
+            {hasActiveSubscription && (
+              <button
+                onClick={handleManageBilling}
+                disabled={openingPortal}
+                className="text-xs text-slate-400 hover:text-white transition-colors disabled:opacity-50 hidden sm:block"
+              >
+                {openingPortal ? "Opening…" : "Billing"}
+              </button>
+            )}
             <button
               onClick={handleSync}
               disabled={syncing}
