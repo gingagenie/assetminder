@@ -4,6 +4,7 @@ import { API } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { SubscriptionWall } from "@/components/SubscriptionWall";
 
 interface CustomField {
   id: string;
@@ -14,6 +15,7 @@ export default function Onboarding() {
   const navigate = useNavigate();
   const jobberAccountId = localStorage.getItem("jobberAccountId");
 
+  const [subscriptionRequired, setSubscriptionRequired] = useState(false);
   const [fields, setFields] = useState<CustomField[]>([]);
   const [selectedLabel, setSelectedLabel] = useState<string>("");
   const [selectedId, setSelectedId] = useState<string>("");
@@ -25,12 +27,41 @@ export default function Onboarding() {
   useEffect(() => {
     if (!jobberAccountId) { navigate("/"); return; }
 
-    fetch(`${API}/api/custom-fields?jobberAccountId=${encodeURIComponent(jobberAccountId)}`)
-      .then((r) => r.json())
-      .then((data: { fields: CustomField[] }) => setFields(data.fields))
-      .catch(() => setError("Failed to load custom fields."))
-      .finally(() => setLoading(false));
+    (async () => {
+      try {
+        // Check subscription before touching any protected API
+        const billingRes = await fetch(`${API}/api/billing/status?jobberAccountId=${encodeURIComponent(jobberAccountId)}`);
+        if (billingRes.ok) {
+          const billing = (await billingRes.json()) as { subscriptionStatus: string; trialExpired: boolean };
+          if (billing.trialExpired || billing.subscriptionStatus === "expired") {
+            setSubscriptionRequired(true);
+            setLoading(false);
+            return;
+          }
+        }
+
+        const r = await fetch(`${API}/api/custom-fields?jobberAccountId=${encodeURIComponent(jobberAccountId)}`);
+        if (r.status === 402) {
+          setSubscriptionRequired(true);
+          return;
+        }
+        if (!r.ok) {
+          setError("Failed to load custom fields.");
+          return;
+        }
+        const data = (await r.json()) as { fields: CustomField[] };
+        setFields(data.fields ?? []);
+      } catch {
+        setError("Failed to load custom fields.");
+      } finally {
+        setLoading(false);
+      }
+    })();
   }, [jobberAccountId, navigate]);
+
+  if (subscriptionRequired) {
+    return <SubscriptionWall />;
+  }
 
   async function handleAutoCreate() {
     if (!jobberAccountId) return;

@@ -30,10 +30,26 @@ export default function OAuthCallback() {
 
         localStorage.setItem("jobberAccountId", jobberAccountId);
 
+        // Check subscription status — expired accounts go straight to dashboard
+        // which handles the SubscriptionWall. Never send them to onboarding.
+        const billingRes = await fetch(`${API}/api/billing/status?jobberAccountId=${encodeURIComponent(jobberAccountId)}`);
+        if (billingRes.ok) {
+          const billing = (await billingRes.json()) as { subscriptionStatus: string; trialExpired: boolean };
+          if (billing.trialExpired || billing.subscriptionStatus === "expired") {
+            navigate("/dashboard");
+            return;
+          }
+        }
+
         // Check whether field mapping is already configured
         const res = await fetch(
           `${API}/api/orgs/field-mapping?jobberAccountId=${encodeURIComponent(jobberAccountId)}`
         );
+        if (!res.ok) {
+          // 402 or other error — send to dashboard which handles subscription wall and auth checks
+          navigate("/dashboard");
+          return;
+        }
         const data = (await res.json()) as { assetIdentifierField: string | null };
 
         if (data.assetIdentifierField) {
