@@ -10,6 +10,7 @@ import Portal from "@/pages/Portal";
 import Terms from "@/pages/Terms";
 import Privacy from "@/pages/Privacy";
 import Help from "@/pages/Help";
+import Admin from "@/pages/Admin";
 import { SubscriptionWall } from "@/components/SubscriptionWall";
 
 function RequireAuth({ children }: { children: React.ReactNode }) {
@@ -45,6 +46,7 @@ export default function App() {
           <Route path="/terms" element={<Terms />} />
           <Route path="/privacy" element={<Privacy />} />
           <Route path="/help" element={<Help />} />
+          <Route path="/admin" element={<Admin />} />
         </Routes>
       </HashRouter>
       {subscriptionRequired && <SubscriptionWall />}

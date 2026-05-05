@@ -7,6 +7,7 @@ import authRouter from "./routes/auth";
 import apiRouter from "./routes/api";
 import webhookRouter from "./routes/webhooks";
 import billingRouter from "./routes/billing";
+import adminRouter from "./routes/admin";
 import { db } from "./db/client";
 import { jobberOrgs } from "./db/schema";
 
@@ -44,6 +45,7 @@ app.get("/health", (_req, res) => {
 app.use("/auth/jobber", authRouter);
 app.use("/api/webhooks", webhookRouter); // must be before /api to avoid express.json() conflict
 app.use("/api/billing", billingRouter);  // not behind subscription check
+app.use("/api/admin", adminRouter);      // key-protected, not behind subscription check
 
 // Subscription middleware — checks trial/active/expired for all /api/* routes
 async function requireSubscription(req: Request, res: Response, next: NextFunction) {
