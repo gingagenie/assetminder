@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { useNavigate, Link } from "react-router-dom";
 import { API } from "@/lib/api";
+import { SubscriptionWall } from "@/components/SubscriptionWall";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Copy, Check } from "lucide-react";
 import { Nav } from "@/components/Nav";
@@ -62,6 +63,7 @@ export default function Dashboard() {
   const navigate = useNavigate();
   const jobberAccountId = localStorage.getItem("jobberAccountId");
 
+  const [subscriptionRequired, setSubscriptionRequired] = useState(false);
   const [accountName, setAccountName] = useState<string | null>(null);
   const [clientsList, setClientsList] = useState<Client[]>([]);
   const [loading, setLoading] = useState(true);
@@ -94,7 +96,7 @@ export default function Dashboard() {
     if (billingRes.ok) {
       const billing = (await billingRes.json()) as { subscriptionStatus: string; trialDaysLeft: number; trialExpired: boolean };
       if (billing.trialExpired || billing.subscriptionStatus === "expired") {
-        window.dispatchEvent(new CustomEvent("subscription_required"));
+        setSubscriptionRequired(true);
         return;
       }
     }
@@ -102,8 +104,7 @@ export default function Dashboard() {
     const meRes = await fetch(`${API}/api/me?jobberAccountId=${encodeURIComponent(jobberAccountId)}`);
     if (!meRes.ok) {
       if (meRes.status === 402) {
-        // Subscription lapsed between the status check and this call — show wall, keep session
-        window.dispatchEvent(new CustomEvent("subscription_required"));
+        setSubscriptionRequired(true);
         return;
       }
       localStorage.removeItem("jobberAccountId");
@@ -250,6 +251,10 @@ export default function Dashboard() {
     } finally {
       setSavingKeywords(false);
     }
+  }
+
+  if (subscriptionRequired) {
+    return <SubscriptionWall />;
   }
 
   if (loading) {
