@@ -45,11 +45,18 @@ router.post("/create-checkout-session", async (req: Request, res: Response) => {
 
   const frontendBase = process.env.FRONTEND_URL ?? "http://localhost:3000";
 
+  const trialStart = org.trialStartedAt ?? org.createdAt;
+  const trialEndUnix = Math.floor((trialStart.getTime() + 14 * 24 * 60 * 60 * 1000) / 1000);
+  // If trial has already expired, Stripe requires trial_end to be in the future (min 48h),
+  // so only pass it when there's time remaining.
+  const trialEndInFuture = trialEndUnix > Math.floor(Date.now() / 1000);
+  const subscriptionData = trialEndInFuture ? { trial_end: trialEndUnix } : {};
+
   const session = await stripe.checkout.sessions.create({
     customer: customerId,
     mode: "subscription",
     line_items: [{ price: PRICE_ID, quantity: 1 }],
-    subscription_data: { trial_period_days: 14 },
+    subscription_data: subscriptionData,
     success_url: `${frontendBase}/#/dashboard`,
     cancel_url: `${frontendBase}/#/dashboard`,
   });
