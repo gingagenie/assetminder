@@ -132,10 +132,26 @@ router.get("/status", async (req: Request, res: Response) => {
       .where(eq(jobberOrgs.id, org.id));
   }
 
+  // For active subscriptions fetch the next billing date from Stripe
+  let nextBillingDate: string | null = null;
+  if (org.subscriptionStatus === "active" && org.stripeSubscriptionId) {
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const sub = await (stripe as any).subscriptions.retrieve(org.stripeSubscriptionId);
+      if (sub.current_period_end) {
+        nextBillingDate = new Date(sub.current_period_end * 1000).toISOString();
+      }
+    } catch {
+      // non-fatal — next billing date stays null
+    }
+  }
+
   res.json({
     subscriptionStatus: trialExpired ? "expired" : org.subscriptionStatus,
     trialDaysLeft,
     trialExpired,
+    trialEndsAt: new Date(trialEndMs).toISOString(),
+    nextBillingDate,
   });
 });
 

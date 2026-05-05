@@ -1,5 +1,6 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { API } from "@/lib/api";
+import { BillingModal } from "@/components/BillingModal";
 
 interface NavProps {
   left?: React.ReactNode;
@@ -10,34 +11,8 @@ interface NavProps {
 export function Nav({ left, right, onSyncComplete }: NavProps) {
   const [syncing, setSyncing] = useState(false);
   const [syncError, setSyncError] = useState<string | null>(null);
-  const [openingPortal, setOpeningPortal] = useState(false);
-  const [hasActiveSubscription, setHasActiveSubscription] = useState(false);
+  const [billingOpen, setBillingOpen] = useState(false);
   const jobberAccountId = localStorage.getItem("jobberAccountId");
-
-  useEffect(() => {
-    if (!jobberAccountId) return;
-    fetch(`${API}/api/billing/status?jobberAccountId=${encodeURIComponent(jobberAccountId)}`)
-      .then((r) => r.json())
-      .then((data: { subscriptionStatus?: string }) => {
-        setHasActiveSubscription(data.subscriptionStatus === "active");
-      })
-      .catch(() => { /* silent — button stays hidden */ });
-  }, [jobberAccountId]);
-
-  async function handleManageBilling() {
-    if (!jobberAccountId) return;
-    setOpeningPortal(true);
-    try {
-      const res = await fetch(`${API}/api/billing/portal-url?jobberAccountId=${encodeURIComponent(jobberAccountId)}`);
-      if (!res.ok) return;
-      const data = (await res.json()) as { url?: string };
-      if (data.url) window.open(data.url, "_blank", "noopener,noreferrer");
-    } catch {
-      // silent
-    } finally {
-      setOpeningPortal(false);
-    }
-  }
 
   async function handleSync() {
     if (!jobberAccountId) return;
@@ -72,15 +47,12 @@ export function Nav({ left, right, onSyncComplete }: NavProps) {
           </div>
           <div className="flex items-center gap-3 shrink-0">
             {right}
-            {hasActiveSubscription && (
-              <button
-                onClick={handleManageBilling}
-                disabled={openingPortal}
-                className="text-xs text-slate-400 hover:text-white transition-colors disabled:opacity-50 hidden sm:block"
-              >
-                {openingPortal ? "Opening…" : "Billing"}
-              </button>
-            )}
+            <button
+              onClick={() => setBillingOpen(true)}
+              className="text-xs text-slate-400 hover:text-white transition-colors hidden sm:block"
+            >
+              Billing
+            </button>
             <button
               onClick={handleSync}
               disabled={syncing}
@@ -99,6 +71,7 @@ export function Nav({ left, right, onSyncComplete }: NavProps) {
           <p className="text-xs text-red-600 font-medium">{syncError}</p>
         </div>
       )}
+      <BillingModal open={billingOpen} onClose={() => setBillingOpen(false)} />
     </>
   );
 }
