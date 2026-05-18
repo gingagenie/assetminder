@@ -1,5 +1,5 @@
 import { Router, Request, Response } from "express";
-import { eq, and, inArray, desc } from "drizzle-orm";
+import { eq, and, inArray, desc, sql } from "drizzle-orm";
 import crypto from "crypto";
 import PDFDocument from "pdfkit";
 import { getValidToken } from "../lib/jobberToken";
@@ -342,6 +342,92 @@ router.post("/orgs/setup-asset-field", async (req: Request, res: Response) => {
   }
 });
 
+// ---------- POST /api/assets/from-jobs ----------
+// Creates a new asset and links the given jobs to it via the asset identifier custom field.
+
+router.post("/assets/from-jobs", async (req: Request, res: Response) => {
+  const { jobberAccountId, clientId, displayName, jobberJobIds } = req.body as {
+    jobberAccountId?: string;
+    clientId?: string;
+    displayName?: string;
+    jobberJobIds?: string[];
+  };
+
+  if (!jobberAccountId || !displayName || !Array.isArray(jobberJobIds) || jobberJobIds.length === 0) {
+    res.status(400).json({ error: "jobberAccountId, displayName, and jobberJobIds[] required" });
+    return;
+  }
+
+  try {
+    const org = await requireOrg(jobberAccountId);
+    const fieldLabel = org.assetIdentifierField;
+    if (!fieldLabel) {
+      res.status(400).json({ error: "No asset identifier field mapped for this org" });
+      return;
+    }
+
+    // Reject duplicate identifier within this org
+    const [existing] = await db
+      .select({ id: assets.id })
+      .from(assets)
+      .where(and(eq(assets.orgId, org.id), eq(assets.identifier, displayName)))
+      .limit(1);
+
+    if (existing) {
+      res.status(409).json({ error: `An asset named "${displayName}" already exists` });
+      return;
+    }
+
+    // Verify jobs belong to this org (by jobberJobId)
+    const jobRows = await db
+      .select({ id: jobs.id, jobberJobId: jobs.jobberJobId })
+      .from(jobs)
+      .where(and(eq(jobs.orgId, org.id), inArray(jobs.jobberJobId, jobberJobIds)));
+
+    if (jobRows.length === 0) {
+      res.status(400).json({ error: "No valid jobs found for this org" });
+      return;
+    }
+
+    // Create the asset
+    const assetId = crypto.randomUUID();
+    await db.insert(assets).values({
+      id: assetId,
+      orgId: org.id,
+      jobberClientId: clientId ?? null,
+      identifier: displayName,
+      displayName,
+      jobCount: jobRows.length,
+    });
+
+    // Write custom field entries so existing queries and groupAssets pick them up
+    for (const job of jobRows) {
+      await db
+        .insert(jobCustomFields)
+        .values({ id: crypto.randomUUID(), jobId: job.id, fieldLabel, fieldValue: displayName })
+        .onConflictDoUpdate({
+          target: [jobCustomFields.jobId, jobCustomFields.fieldLabel],
+          set: { fieldValue: displayName },
+        });
+    }
+
+    const [created] = await db.select().from(assets).where(eq(assets.id, assetId)).limit(1);
+
+    res.status(201).json({
+      asset: {
+        id: created.id,
+        identifier: created.identifier,
+        displayName: created.displayName,
+        jobberClientId: created.jobberClientId,
+        jobCount: created.jobCount,
+      },
+    });
+  } catch (err) {
+    console.error("[assets/from-jobs] error:", err);
+    res.status(500).json({ error: String(err) });
+  }
+});
+
 // ---------- POST /api/assets/:assetId/interval ----------
 
 router.post("/assets/:assetId/interval", async (req: Request, res: Response) => {
@@ -374,6 +460,95 @@ router.post("/assets/:assetId/interval", async (req: Request, res: Response) => 
 
     res.json({ ok: true, assetId: updated.id, identifier: updated.identifier, serviceIntervalDays: Math.round(intervalDays) });
   } catch (err) {
+    res.status(500).json({ error: String(err) });
+  }
+});
+
+// ---------- POST /api/assets/:assetId/add-jobs ----------
+// Links additional jobs to an existing asset via the asset identifier custom field.
+
+router.post("/assets/:assetId/add-jobs", async (req: Request, res: Response) => {
+  const assetId = String(req.params.assetId);
+  const { jobberAccountId, jobberJobIds } = req.body as {
+    jobberAccountId?: string;
+    jobberJobIds?: string[];
+  };
+
+  if (!jobberAccountId || !Array.isArray(jobberJobIds) || jobberJobIds.length === 0) {
+    res.status(400).json({ error: "jobberAccountId and jobberJobIds[] required" });
+    return;
+  }
+
+  try {
+    const org = await requireOrg(jobberAccountId);
+    const fieldLabel = org.assetIdentifierField;
+    if (!fieldLabel) {
+      res.status(400).json({ error: "No asset identifier field mapped for this org" });
+      return;
+    }
+
+    // Load asset and verify org ownership
+    const [asset] = await db
+      .select()
+      .from(assets)
+      .where(and(eq(assets.id, assetId), eq(assets.orgId, org.id)))
+      .limit(1);
+
+    if (!asset) {
+      res.status(404).json({ error: "Asset not found" });
+      return;
+    }
+
+    // Verify jobs belong to this org
+    const jobRows = await db
+      .select({ id: jobs.id, jobberJobId: jobs.jobberJobId })
+      .from(jobs)
+      .where(and(eq(jobs.orgId, org.id), inArray(jobs.jobberJobId, jobberJobIds)));
+
+    if (jobRows.length === 0) {
+      res.status(400).json({ error: "No valid jobs found for this org" });
+      return;
+    }
+
+    // Write custom field entries for each job
+    for (const job of jobRows) {
+      await db
+        .insert(jobCustomFields)
+        .values({ id: crypto.randomUUID(), jobId: job.id, fieldLabel, fieldValue: asset.identifier })
+        .onConflictDoUpdate({
+          target: [jobCustomFields.jobId, jobCustomFields.fieldLabel],
+          set: { fieldValue: asset.identifier },
+        });
+    }
+
+    // Recount all jobs now linked to this asset
+    const [countRow] = await db.execute(sql`
+      SELECT COUNT(j.id) AS job_count
+      FROM jobs j
+      INNER JOIN job_custom_fields jcf ON jcf.job_id = j.id
+      WHERE jcf.field_label  = ${fieldLabel}
+        AND jcf.field_value  = ${asset.identifier}
+        AND j.org_id         = ${org.id}
+    `) as unknown as [{ job_count: string }];
+
+    const newJobCount = parseInt(String(countRow.job_count), 10);
+
+    await db
+      .update(assets)
+      .set({ jobCount: newJobCount })
+      .where(eq(assets.id, assetId));
+
+    res.json({
+      asset: {
+        id: asset.id,
+        identifier: asset.identifier,
+        displayName: asset.displayName,
+        jobberClientId: asset.jobberClientId,
+        jobCount: newJobCount,
+      },
+    });
+  } catch (err) {
+    console.error("[assets/add-jobs] error:", err);
     res.status(500).json({ error: String(err) });
   }
 });
@@ -764,6 +939,117 @@ router.get("/portal/:token", async (req: Request, res: Response) => {
       }),
     });
   } catch (err) {
+    res.status(500).json({ error: String(err) });
+  }
+});
+
+// ---------- GET /api/jobs/unassigned ----------
+// Returns jobs with no asset identifier custom field value, grouped by client.
+
+router.get("/jobs/unassigned", async (req: Request, res: Response) => {
+  const { jobberAccountId, clientId, search } = req.query;
+
+  if (!jobberAccountId || typeof jobberAccountId !== "string") {
+    res.status(400).json({ error: "Missing required query param: jobberAccountId" });
+    return;
+  }
+
+  try {
+    const org = await requireOrg(jobberAccountId);
+    const fieldLabel = org.assetIdentifierField;
+    if (!fieldLabel) {
+      res.status(400).json({ error: "No asset identifier field mapped for this org" });
+      return;
+    }
+
+    // Build WHERE clause incrementally
+    const conditions = [
+      sql`j.org_id = ${org.id}`,
+      sql`NOT EXISTS (
+        SELECT 1 FROM job_custom_fields jcf
+        WHERE jcf.job_id     = j.id
+          AND jcf.field_label = ${fieldLabel}
+          AND jcf.field_value IS NOT NULL
+          AND jcf.field_value != ''
+      )`,
+    ];
+
+    if (clientId && typeof clientId === "string") {
+      conditions.push(sql`j.jobber_client_id = ${clientId}`);
+    }
+
+    if (search && typeof search === "string" && search.trim()) {
+      const term = `%${search.trim().toLowerCase()}%`;
+      conditions.push(sql`(
+        LOWER(COALESCE(j.title, ''))        LIKE ${term}
+        OR LOWER(COALESCE(j.instructions, '')) LIKE ${term}
+      )`);
+    }
+
+    const rows = await db.execute(sql`
+      SELECT
+        j.id,
+        j.jobber_job_id,
+        j.jobber_client_id,
+        j.job_number,
+        j.title,
+        j.instructions,
+        j.created_at,
+        j.job_status,
+        j.completed_at
+      FROM jobs j
+      WHERE ${sql.join(conditions, sql` AND `)}
+      ORDER BY j.created_at DESC
+    `) as unknown as {
+      id: string;
+      jobber_job_id: string;
+      jobber_client_id: string | null;
+      job_number: number | null;
+      title: string | null;
+      instructions: string | null;
+      created_at: Date | string;
+      job_status: string;
+      completed_at: Date | string | null;
+    }[];
+
+    // Fetch client names for all referenced clients
+    const clientIds = [...new Set(rows.map((r) => r.jobber_client_id).filter(Boolean))] as string[];
+    const clientRows = clientIds.length > 0
+      ? await db
+          .select({ jobberClientId: clients.jobberClientId, name: clients.name, companyName: clients.companyName })
+          .from(clients)
+          .where(and(eq(clients.orgId, org.id), inArray(clients.jobberClientId, clientIds)))
+      : [];
+
+    const clientNameMap = new Map(clientRows.map((c) => [c.jobberClientId, c.companyName ?? c.name]));
+
+    // Group jobs by client
+    const grouped = new Map<string | null, { clientId: string | null; clientName: string | null; jobs: unknown[] }>();
+
+    for (const row of rows) {
+      const key = row.jobber_client_id ?? null;
+      if (!grouped.has(key)) {
+        grouped.set(key, {
+          clientId: key,
+          clientName: key ? (clientNameMap.get(key) ?? null) : null,
+          jobs: [],
+        });
+      }
+      grouped.get(key)!.jobs.push({
+        id: row.id,
+        jobberJobId: row.jobber_job_id,
+        jobNumber: row.job_number,
+        title: row.title ?? null,
+        instructions: row.instructions ? row.instructions.slice(0, 200) : null,
+        startDate: row.created_at ? new Date(row.created_at).toISOString() : null,
+        completedAt: row.completed_at ? new Date(row.completed_at).toISOString() : null,
+        status: row.job_status,
+      });
+    }
+
+    res.json({ clients: [...grouped.values()] });
+  } catch (err) {
+    console.error("[jobs/unassigned] error:", err);
     res.status(500).json({ error: String(err) });
   }
 });
