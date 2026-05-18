@@ -11,6 +11,7 @@ import Terms from "@/pages/Terms";
 import Privacy from "@/pages/Privacy";
 import Help from "@/pages/Help";
 import Admin from "@/pages/Admin";
+import UnassignedJobs from "@/pages/UnassignedJobs";
 import { SubscriptionWall } from "@/components/SubscriptionWall";
 
 function RequireAuth({ children }: { children: React.ReactNode }) {
@@ -47,6 +48,7 @@ export default function App() {
           <Route path="/privacy" element={<Privacy />} />
           <Route path="/help" element={<Help />} />
           <Route path="/admin" element={<Admin />} />
+          <Route path="/unassigned-jobs" element={<RequireAuth><UnassignedJobs /></RequireAuth>} />
         </Routes>
       </HashRouter>
       {subscriptionRequired && <SubscriptionWall />}
