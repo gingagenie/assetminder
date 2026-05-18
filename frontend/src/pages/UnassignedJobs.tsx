@@ -3,6 +3,12 @@ import { useNavigate } from "react-router-dom";
 import { API } from "@/lib/api";
 import { ChevronLeft, ChevronDown, ChevronRight } from "lucide-react";
 import { Nav } from "@/components/Nav";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 
 // ---------- Types ----------
 
@@ -152,6 +158,301 @@ function ClientSection({
   );
 }
 
+// ---------- CreateAssetModal ----------
+
+interface ExistingAsset {
+  id: string;
+  displayName: string;
+  jobCount: number;
+}
+
+interface CreateAssetModalProps {
+  open: boolean;
+  onClose: () => void;
+  selectedJobIds: string[];
+  clientId: string | null;
+  jobberAccountId: string;
+  selectedCount: number;
+  onSuccess: () => void;
+  onSwitchToAdd: (assets: ExistingAsset[]) => void;
+}
+
+function CreateAssetModal({
+  open,
+  onClose,
+  selectedJobIds,
+  clientId,
+  jobberAccountId,
+  selectedCount,
+  onSuccess,
+  onSwitchToAdd,
+}: CreateAssetModalProps) {
+  const [name, setName]           = useState("");
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError]         = useState<string | null>(null);
+  const [dupAsset, setDupAsset]   = useState<ExistingAsset | null>(null);
+  const [dupAssets, setDupAssets] = useState<ExistingAsset[] | null>(null);
+
+  function reset() {
+    setName("");
+    setSubmitting(false);
+    setError(null);
+    setDupAsset(null);
+    setDupAssets(null);
+  }
+
+  function handleOpenChange(v: boolean) {
+    if (!v) { reset(); onClose(); }
+  }
+
+  async function checkDuplicate(val: string): Promise<ExistingAsset | null> {
+    if (!val.trim()) return null;
+    try {
+      const url = new URL(`${API || window.location.origin}/api/assets`);
+      url.searchParams.set("jobberAccountId", jobberAccountId);
+      if (clientId) url.searchParams.set("clientId", clientId);
+      const res = await fetch(url.toString());
+      if (!res.ok) return null;
+      const data = (await res.json()) as { assets: ExistingAsset[] };
+      setDupAssets(data.assets);
+      return data.assets.find(
+        (a) => a.displayName.trim().toLowerCase() === val.trim().toLowerCase()
+      ) ?? null;
+    } catch { return null; }
+  }
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    setError(null);
+    setDupAsset(null);
+
+    const dup = await checkDuplicate(name);
+    if (dup) { setDupAsset(dup); return; }
+
+    setSubmitting(true);
+    try {
+      const res = await fetch(`${API || window.location.origin}/api/assets/from-jobs`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ jobberAccountId, jobIds: selectedJobIds, displayName: name.trim(), clientId }),
+      });
+      if (res.status === 409) { setError("An asset with that name already exists."); return; }
+      if (!res.ok) { setError("Failed to create asset. Please try again."); return; }
+      reset();
+      onSuccess();
+    } catch { setError("Failed to create asset. Please try again."); }
+    finally { setSubmitting(false); }
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={handleOpenChange}>
+      <DialogContent style={{ fontFamily: "Inter, sans-serif" }} className="max-w-md">
+        <DialogHeader>
+          <DialogTitle className="text-slate-800">Create new asset</DialogTitle>
+        </DialogHeader>
+        <form onSubmit={handleSubmit} className="space-y-4">
+          <div>
+            <label className="block text-sm font-medium text-slate-700 mb-1">
+              Asset name
+            </label>
+            <input
+              type="text"
+              value={name}
+              onChange={(e) => { setName(e.target.value); setDupAsset(null); setError(null); }}
+              placeholder="e.g. Toyota 8FG25, PRIN 4, AUSA 2"
+              className="w-full px-3 py-2 rounded-lg border border-slate-200 bg-white text-sm text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-slate-300"
+              autoFocus
+            />
+            <p className="mt-1.5 text-xs text-slate-400">
+              This name will identify the asset across all {selectedCount} selected job{selectedCount !== 1 ? "s" : ""}
+            </p>
+          </div>
+
+          {dupAsset && (
+            <div className="rounded-lg bg-amber-50 border border-amber-200 px-4 py-3 text-sm text-amber-800">
+              <p className="font-medium">"{dupAsset.displayName}" already exists ({dupAsset.jobCount} job{dupAsset.jobCount !== 1 ? "s" : ""})</p>
+              <button
+                type="button"
+                onClick={() => { reset(); onClose(); onSwitchToAdd(dupAssets ?? []); }}
+                className="mt-1 text-amber-700 underline underline-offset-2 hover:text-amber-900 text-xs"
+              >
+                Add to existing asset instead
+              </button>
+            </div>
+          )}
+
+          {error && (
+            <p className="text-sm text-red-500">{error}</p>
+          )}
+
+          <div className="flex justify-end gap-2 pt-1">
+            <button
+              type="button"
+              onClick={() => { reset(); onClose(); }}
+              className="px-4 py-2 text-sm text-slate-600 hover:text-slate-800 transition-colors"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              disabled={submitting || !name.trim()}
+              className="px-4 py-2 text-sm font-semibold rounded-lg bg-slate-800 text-white hover:bg-slate-700 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+            >
+              {submitting ? "Creating…" : "Create asset"}
+            </button>
+          </div>
+        </form>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+// ---------- AddToAssetModal ----------
+
+interface AddToAssetModalProps {
+  open: boolean;
+  onClose: () => void;
+  selectedJobIds: string[];
+  clientId: string | null;
+  jobberAccountId: string;
+  onSuccess: () => void;
+  onSwitchToCreate: () => void;
+  prefetchedAssets?: ExistingAsset[] | null;
+}
+
+function AddToAssetModal({
+  open,
+  onClose,
+  selectedJobIds,
+  clientId,
+  jobberAccountId,
+  onSuccess,
+  onSwitchToCreate,
+  prefetchedAssets,
+}: AddToAssetModalProps) {
+  const [assets, setAssets]         = useState<ExistingAsset[]>([]);
+  const [loading, setLoading]       = useState(false);
+  const [selectedAssetId, setSelectedAssetId] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError]           = useState<string | null>(null);
+
+  function reset() {
+    setAssets([]);
+    setLoading(false);
+    setSelectedAssetId("");
+    setSubmitting(false);
+    setError(null);
+  }
+
+  function handleOpenChange(v: boolean) {
+    if (!v) { reset(); onClose(); }
+  }
+
+  useEffect(() => {
+    if (!open) return;
+    if (prefetchedAssets) {
+      const sorted = [...prefetchedAssets].sort((a, b) => a.displayName.localeCompare(b.displayName));
+      setAssets(sorted);
+      if (sorted.length > 0) setSelectedAssetId(sorted[0].id);
+      return;
+    }
+    setLoading(true);
+    const url = new URL(`${API || window.location.origin}/api/assets`);
+    url.searchParams.set("jobberAccountId", jobberAccountId);
+    if (clientId) url.searchParams.set("clientId", clientId);
+    fetch(url.toString())
+      .then((r) => r.json())
+      .then((data: { assets: ExistingAsset[] }) => {
+        const sorted = [...data.assets].sort((a, b) => a.displayName.localeCompare(b.displayName));
+        setAssets(sorted);
+        if (sorted.length > 0) setSelectedAssetId(sorted[0].id);
+      })
+      .catch(() => setError("Failed to load assets."))
+      .finally(() => setLoading(false));
+  }, [open]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    if (!selectedAssetId) return;
+    setError(null);
+    setSubmitting(true);
+    try {
+      const res = await fetch(`${API || window.location.origin}/api/assets/${selectedAssetId}/add-jobs`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ jobberAccountId, jobIds: selectedJobIds }),
+      });
+      if (!res.ok) { setError("Failed to add jobs. Please try again."); return; }
+      reset();
+      onSuccess();
+    } catch { setError("Failed to add jobs. Please try again."); }
+    finally { setSubmitting(false); }
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={handleOpenChange}>
+      <DialogContent style={{ fontFamily: "Inter, sans-serif" }} className="max-w-md">
+        <DialogHeader>
+          <DialogTitle className="text-slate-800">Add to existing asset</DialogTitle>
+        </DialogHeader>
+
+        {loading ? (
+          <p className="text-sm text-slate-400 py-4">Loading assets…</p>
+        ) : assets.length === 0 ? (
+          <div className="py-4 text-center space-y-3">
+            <p className="text-sm text-slate-500">No existing assets for this client.</p>
+            <button
+              type="button"
+              onClick={() => { reset(); onClose(); onSwitchToCreate(); }}
+              className="text-sm font-semibold text-slate-800 underline underline-offset-2 hover:text-slate-600 transition-colors"
+            >
+              Create a new asset instead
+            </button>
+          </div>
+        ) : (
+          <form onSubmit={handleSubmit} className="space-y-4">
+            <div>
+              <label className="block text-sm font-medium text-slate-700 mb-1">
+                Asset
+              </label>
+              <select
+                value={selectedAssetId}
+                onChange={(e) => setSelectedAssetId(e.target.value)}
+                className="w-full px-3 py-2 rounded-lg border border-slate-200 bg-white text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-slate-300"
+              >
+                {assets.map((a) => (
+                  <option key={a.id} value={a.id}>
+                    {a.displayName} ({a.jobCount} job{a.jobCount !== 1 ? "s" : ""})
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            {error && <p className="text-sm text-red-500">{error}</p>}
+
+            <div className="flex justify-end gap-2 pt-1">
+              <button
+                type="button"
+                onClick={() => { reset(); onClose(); }}
+                className="px-4 py-2 text-sm text-slate-600 hover:text-slate-800 transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                disabled={submitting || !selectedAssetId}
+                className="px-4 py-2 text-sm font-semibold rounded-lg bg-slate-800 text-white hover:bg-slate-700 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+              >
+                {submitting ? "Adding…" : "Add jobs"}
+              </button>
+            </div>
+          </form>
+        )}
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 // ---------- UnassignedJobs ----------
 
 export default function UnassignedJobs() {
@@ -164,6 +465,19 @@ export default function UnassignedJobs() {
   const [search, setSearch]       = useState("");
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+
+  const [createModalOpen, setCreateModalOpen] = useState(false);
+  const [addModalOpen, setAddModalOpen]       = useState(false);
+  const [addModalPrefetch, setAddModalPrefetch] = useState<ExistingAsset[] | null>(null);
+
+  const [toast, setToast] = useState<string | null>(null);
+  const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  function showToast(msg: string) {
+    if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
+    setToast(msg);
+    toastTimerRef.current = setTimeout(() => setToast(null), 3000);
+  }
 
   // Accumulates jobId → clientId for every job ever loaded so the
   // multi-client check works even when a job is hidden by search.
@@ -253,6 +567,13 @@ export default function UnassignedJobs() {
 
   function clearSelection() {
     setSelectedIds(new Set());
+  }
+
+  function handleModalSuccess(msg: string) {
+    setSelectedIds(new Set());
+    initializedRef.current = false;
+    fetchJobs(search);
+    showToast(msg);
   }
 
   // Derive the unique set of client IDs for selected jobs
@@ -357,6 +678,38 @@ export default function UnassignedJobs() {
 
       </main>
 
+      {/* Toast */}
+      {toast && (
+        <div
+          style={{ fontFamily: "Inter, sans-serif" }}
+          className="fixed top-6 left-1/2 -translate-x-1/2 z-50 bg-slate-800 text-white text-sm font-medium px-5 py-2.5 rounded-full shadow-lg"
+        >
+          {toast}
+        </div>
+      )}
+
+      {/* Modals */}
+      <CreateAssetModal
+        open={createModalOpen}
+        onClose={() => setCreateModalOpen(false)}
+        selectedJobIds={[...selectedIds]}
+        clientId={[...selectedClientIds][0] ?? null}
+        jobberAccountId={jobberAccountId}
+        selectedCount={selectedCount}
+        onSuccess={() => handleModalSuccess("Asset created")}
+        onSwitchToAdd={(assets) => { setAddModalPrefetch(assets); setAddModalOpen(true); }}
+      />
+      <AddToAssetModal
+        open={addModalOpen}
+        onClose={() => setAddModalOpen(false)}
+        selectedJobIds={[...selectedIds]}
+        clientId={[...selectedClientIds][0] ?? null}
+        jobberAccountId={jobberAccountId}
+        onSuccess={() => handleModalSuccess("Jobs added to asset")}
+        onSwitchToCreate={() => setCreateModalOpen(true)}
+        prefetchedAssets={addModalPrefetch}
+      />
+
       {/* Sticky action bar */}
       {selectedCount > 0 && (
         <div
@@ -379,12 +732,7 @@ export default function UnassignedJobs() {
               <button
                 disabled={multiClient}
                 title={disabledTitle}
-                onClick={() => {
-                  console.log("Create new asset", {
-                    selectedJobIds: [...selectedIds],
-                    clientIds: [...selectedClientIds],
-                  });
-                }}
+                onClick={() => setCreateModalOpen(true)}
                 className="text-sm font-semibold px-4 py-2 rounded-lg border border-slate-200 text-slate-700 hover:bg-slate-50 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
               >
                 Create new asset
@@ -392,12 +740,7 @@ export default function UnassignedJobs() {
               <button
                 disabled={multiClient}
                 title={disabledTitle}
-                onClick={() => {
-                  console.log("Add to existing asset", {
-                    selectedJobIds: [...selectedIds],
-                    clientIds: [...selectedClientIds],
-                  });
-                }}
+                onClick={() => { setAddModalPrefetch(null); setAddModalOpen(true); }}
                 className="text-sm font-semibold px-4 py-2 rounded-lg bg-slate-800 text-white hover:bg-slate-700 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
               >
                 Add to existing asset
