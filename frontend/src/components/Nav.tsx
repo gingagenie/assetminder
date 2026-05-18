@@ -1,6 +1,7 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { API } from "@/lib/api";
 import { BillingModal } from "@/components/BillingModal";
+import { useNavigate } from "react-router-dom";
 
 interface NavProps {
   left?: React.ReactNode;
@@ -13,6 +14,16 @@ export function Nav({ left, right, onSyncComplete }: NavProps) {
   const [syncError, setSyncError] = useState<string | null>(null);
   const [billingOpen, setBillingOpen] = useState(false);
   const jobberAccountId = localStorage.getItem("jobberAccountId");
+  const [unassignedCount, setUnassignedCount] = useState(0);
+  const navigate = useNavigate();
+
+  useEffect(() => {
+    if (!jobberAccountId) return;
+    fetch(`${API}/api/stats/unassigned-count?jobberAccountId=${encodeURIComponent(jobberAccountId)}`)
+      .then((r) => r.ok ? r.json() : null)
+      .then((data: { count: number } | null) => { if (data) setUnassignedCount(data.count); })
+      .catch(() => {});
+  }, [jobberAccountId]);
 
   async function handleSync() {
     if (!jobberAccountId) return;
@@ -47,6 +58,17 @@ export function Nav({ left, right, onSyncComplete }: NavProps) {
           </div>
           <div className="flex items-center gap-3 shrink-0">
             {right}
+            {unassignedCount > 0 && (
+              <button
+                onClick={() => navigate("/unassigned-jobs")}
+                className="hidden sm:flex items-center gap-1.5 text-xs text-slate-400 hover:text-white transition-colors"
+              >
+                Unassigned
+                <span className="inline-flex items-center justify-center h-4 min-w-4 rounded-full bg-amber-500 px-1 text-[10px] font-semibold text-white">
+                  {unassignedCount}
+                </span>
+              </button>
+            )}
             <button
               onClick={() => setBillingOpen(true)}
               className="text-xs text-slate-400 hover:text-white transition-colors hidden sm:block"

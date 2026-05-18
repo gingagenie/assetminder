@@ -72,6 +72,7 @@ export default function Dashboard() {
   const [generatingFor, setGeneratingFor] = useState<string | null>(null);
   const [disconnecting, setDisconnecting] = useState(false);
   const [clientSearch, setClientSearch] = useState("");
+  const [unassignedCount, setUnassignedCount] = useState(0);
 
   // Settings state
   const [keywordsInput, setKeywordsInput] = useState("");
@@ -139,6 +140,15 @@ export default function Dashboard() {
     setKeywordsInput((settingsData.serviceKeywords ?? []).join(", "));
     setAssetFieldLabel(fieldData.assetIdentifierField);
     setAssetFieldId(fieldData.assetIdentifierFieldId);
+
+    // Fetch unassigned count — soft failure, defaults to 0
+    const unassignedRes = await fetch(
+      `${API}/api/stats/unassigned-count?jobberAccountId=${encodeURIComponent(jobberAccountId)}`
+    ).catch(() => null);
+    if (unassignedRes?.ok) {
+      const { count } = (await unassignedRes.json()) as { count: number };
+      setUnassignedCount(count);
+    }
   }
 
   useEffect(() => {
@@ -303,6 +313,21 @@ export default function Dashboard() {
       />
 
       <main className="max-w-3xl mx-auto px-6 py-10">
+
+        {/* Unassigned jobs banner */}
+        {unassignedCount > 0 && (
+          <div className="mb-6 flex items-center justify-between gap-4 rounded-xl border border-amber-200 bg-amber-50 px-5 py-4">
+            <p className="text-sm font-medium text-amber-800">
+              You have {unassignedCount} job{unassignedCount !== 1 ? "s" : ""} not yet linked to an asset.
+            </p>
+            <Link
+              to="/unassigned-jobs"
+              className="shrink-0 text-sm font-semibold px-4 py-1.5 rounded-lg bg-amber-800 text-white hover:bg-amber-900 transition-colors"
+            >
+              Group them
+            </Link>
+          </div>
+        )}
 
         <div className="flex items-baseline gap-2 mb-6">
           <h2 className="text-lg font-semibold text-slate-800">Clients</h2>

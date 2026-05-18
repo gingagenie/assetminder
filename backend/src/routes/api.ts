@@ -1054,6 +1054,45 @@ router.get("/jobs/unassigned", async (req: Request, res: Response) => {
   }
 });
 
+// ---------- GET /api/stats/unassigned-count ----------
+// Returns the total number of unassigned jobs for a quick badge/banner count.
+
+router.get("/stats/unassigned-count", async (req: Request, res: Response) => {
+  const { jobberAccountId } = req.query;
+
+  if (!jobberAccountId || typeof jobberAccountId !== "string") {
+    res.status(400).json({ error: "Missing required query param: jobberAccountId" });
+    return;
+  }
+
+  try {
+    const org = await requireOrg(jobberAccountId);
+    const fieldLabel = org.assetIdentifierField;
+    if (!fieldLabel) {
+      res.json({ count: 0 });
+      return;
+    }
+
+    const [row] = await db.execute(sql`
+      SELECT COUNT(*) AS count
+      FROM jobs j
+      WHERE j.org_id = ${org.id}
+        AND NOT EXISTS (
+          SELECT 1 FROM job_custom_fields jcf
+          WHERE jcf.job_id     = j.id
+            AND jcf.field_label = ${fieldLabel}
+            AND jcf.field_value IS NOT NULL
+            AND jcf.field_value != ''
+        )
+    `) as unknown as [{ count: string }];
+
+    res.json({ count: parseInt(String(row.count), 10) });
+  } catch (err) {
+    console.error("[stats/unassigned-count] error:", err);
+    res.status(500).json({ error: String(err) });
+  }
+});
+
 // ---------- GET /api/jobs/:jobId/notes (live visit data from Jobber) ----------
 
 router.get("/jobs/:jobId/notes", async (req: Request, res: Response) => {
