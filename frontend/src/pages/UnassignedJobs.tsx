@@ -169,7 +169,7 @@ interface ExistingAsset {
 interface CreateAssetModalProps {
   open: boolean;
   onClose: () => void;
-  selectedJobIds: string[];
+  selectedJobberJobIds: string[];
   clientId: string | null;
   jobberAccountId: string;
   selectedCount: number;
@@ -180,7 +180,7 @@ interface CreateAssetModalProps {
 function CreateAssetModal({
   open,
   onClose,
-  selectedJobIds,
+  selectedJobberJobIds,
   clientId,
   jobberAccountId,
   selectedCount,
@@ -234,7 +234,7 @@ function CreateAssetModal({
       const res = await fetch(`${API || window.location.origin}/api/assets/from-jobs`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ jobberAccountId, jobIds: selectedJobIds, displayName: name.trim(), clientId }),
+        body: JSON.stringify({ jobberAccountId, jobberJobIds: selectedJobberJobIds, displayName: name.trim(), clientId }),
       });
       if (res.status === 409) { setError("An asset with that name already exists."); return; }
       if (!res.ok) { setError("Failed to create asset. Please try again."); return; }
@@ -312,7 +312,7 @@ function CreateAssetModal({
 interface AddToAssetModalProps {
   open: boolean;
   onClose: () => void;
-  selectedJobIds: string[];
+  selectedJobberJobIds: string[];
   clientId: string | null;
   jobberAccountId: string;
   onSuccess: () => void;
@@ -323,7 +323,7 @@ interface AddToAssetModalProps {
 function AddToAssetModal({
   open,
   onClose,
-  selectedJobIds,
+  selectedJobberJobIds,
   clientId,
   jobberAccountId,
   onSuccess,
@@ -380,7 +380,7 @@ function AddToAssetModal({
       const res = await fetch(`${API || window.location.origin}/api/assets/${selectedAssetId}/add-jobs`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ jobberAccountId, jobIds: selectedJobIds }),
+        body: JSON.stringify({ jobberAccountId, jobberJobIds: selectedJobberJobIds }),
       });
       if (!res.ok) { setError("Failed to add jobs. Please try again."); return; }
       reset();
@@ -483,6 +483,10 @@ export default function UnassignedJobs() {
   // multi-client check works even when a job is hidden by search.
   const jobClientMapRef = useRef<Map<string, string | null>>(new Map());
 
+  // Accumulates jobId (internal UUID) → jobberJobId (Jobber-encoded ID)
+  // for deriving the correct IDs to send in API payloads.
+  const jobberJobIdMapRef = useRef<Map<string, string>>(new Map());
+
   // Tracks whether we've set the initial collapsed state.
   const initializedRef = useRef(false);
 
@@ -504,6 +508,7 @@ export default function UnassignedJobs() {
       for (const g of data.clients) {
         for (const j of g.jobs) {
           jobClientMapRef.current.set(j.id, g.clientId);
+          jobberJobIdMapRef.current.set(j.id, j.jobberJobId);
         }
       }
 
@@ -575,6 +580,11 @@ export default function UnassignedJobs() {
     fetchJobs(search);
     showToast(msg);
   }
+
+  // Derive Jobber-encoded IDs for the selected jobs (for API payloads)
+  const selectedJobberJobIds = [...selectedIds]
+    .map((id) => jobberJobIdMapRef.current.get(id))
+    .filter((id): id is string => id !== undefined);
 
   // Derive the unique set of client IDs for selected jobs
   const selectedClientIds = new Set<string | null>();
@@ -692,7 +702,7 @@ export default function UnassignedJobs() {
       <CreateAssetModal
         open={createModalOpen}
         onClose={() => setCreateModalOpen(false)}
-        selectedJobIds={[...selectedIds]}
+        selectedJobberJobIds={selectedJobberJobIds}
         clientId={[...selectedClientIds][0] ?? null}
         jobberAccountId={jobberAccountId}
         selectedCount={selectedCount}
@@ -702,7 +712,7 @@ export default function UnassignedJobs() {
       <AddToAssetModal
         open={addModalOpen}
         onClose={() => setAddModalOpen(false)}
-        selectedJobIds={[...selectedIds]}
+        selectedJobberJobIds={selectedJobberJobIds}
         clientId={[...selectedClientIds][0] ?? null}
         jobberAccountId={jobberAccountId}
         onSuccess={() => handleModalSuccess("Jobs added to asset")}
