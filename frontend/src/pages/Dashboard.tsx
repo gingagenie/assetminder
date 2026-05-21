@@ -3,7 +3,7 @@ import { useNavigate, Link } from "react-router-dom";
 import { API } from "@/lib/api";
 import { SubscriptionWall } from "@/components/SubscriptionWall";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { Copy, Check } from "lucide-react";
+import { Copy, Check, Share2 } from "lucide-react";
 import { Nav } from "@/components/Nav";
 
 // ---------- Types ----------
@@ -312,9 +312,9 @@ export default function Dashboard() {
         onSyncComplete={loadDashboard}
       />
 
-      <main className="max-w-3xl mx-auto px-6 py-10">
+      <main className="px-6 py-8">
 
-        {/* Unassigned jobs banner */}
+        {/* Unassigned jobs banner — unchanged */}
         {unassignedCount > 0 && (
           <div className="mb-6 flex items-center justify-between gap-4 rounded-xl border border-amber-200 bg-amber-50 px-5 py-4">
             <p className="text-sm font-medium text-amber-800">
@@ -329,173 +329,157 @@ export default function Dashboard() {
           </div>
         )}
 
-        <div className="flex items-baseline gap-2 mb-6">
-          <h2 className="text-lg font-semibold text-slate-800">Clients</h2>
-          <span className="text-sm text-slate-400">{clientsList.length}</span>
-        </div>
+        {/* Two-column layout */}
+        <div className="grid grid-cols-1 md:grid-cols-[1fr_200px] gap-4 items-start">
 
-        {clientsList.length === 0 ? (
-          <p className="text-slate-400 text-sm">No clients found. Run a sync to populate.</p>
-        ) : (
-          <div className="space-y-3">
-            <input
-              type="text"
-              value={clientSearch}
-              onChange={(e) => setClientSearch(e.target.value)}
-              placeholder="Search clients..."
-              className="w-full px-4 py-2.5 rounded-lg border border-slate-200 bg-white text-sm text-slate-800 placeholder-slate-400 shadow-sm focus:outline-none focus:ring-2 focus:ring-slate-300"
-            />
-            {(() => {
-              const query = clientSearch.trim().toLowerCase();
-              const filtered = query
-                ? clientsList.filter(
-                    (c) =>
-                      (c.companyName ?? c.name).toLowerCase().includes(query) ||
-                      (c.email ?? "").toLowerCase().includes(query)
-                  )
-                : clientsList;
+          {/* LEFT: Clients */}
+          <div className="bg-white rounded-lg border border-slate-200 p-4">
+            <div className="flex items-center justify-between gap-3 mb-4">
+              <div className="flex items-center gap-2">
+                <h2 className="text-sm font-semibold text-slate-800">Clients</h2>
+                <span className="text-xs text-slate-400">{clientsList.length}</span>
+              </div>
+              <input
+                type="text"
+                value={clientSearch}
+                onChange={(e) => setClientSearch(e.target.value)}
+                placeholder="Search clients..."
+                className="w-48 px-3 py-1.5 rounded-lg border border-slate-200 bg-slate-50 text-xs text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-slate-300"
+              />
+            </div>
 
-              if (filtered.length === 0) {
-                return <p className="text-slate-400 text-sm">No clients found.</p>;
-              }
+            {clientsList.length === 0 ? (
+              <p className="text-slate-400 text-sm">No clients found. Run a sync to populate.</p>
+            ) : (
+              (() => {
+                const query = clientSearch.trim().toLowerCase();
+                const filtered = query
+                  ? clientsList.filter(
+                      (c) =>
+                        (c.companyName ?? c.name).toLowerCase().includes(query) ||
+                        (c.email ?? "").toLowerCase().includes(query)
+                    )
+                  : clientsList;
 
-              return filtered.map((client) => (
-              <Link
-                key={client.id}
-                to={`/clients/${client.id}`}
-                className="block bg-white rounded-xl shadow-sm border border-slate-200 hover:border-slate-300 hover:shadow transition-all overflow-hidden"
-              >
-                <div className="px-5 py-4 flex items-center justify-between gap-4">
-                  <div className="min-w-0">
-                    <p className="font-semibold text-slate-800 truncate">
-                      {client.companyName ?? client.name}
-                    </p>
-                    <div className="flex items-center gap-3 mt-0.5">
-                      {client.email && (
-                        <p className="text-xs text-slate-400 truncate">{client.email}</p>
-                      )}
-                      <span className="text-xs text-slate-300">·</span>
-                      <p className="text-xs text-slate-400 shrink-0">
-                        {(client.assetCount ?? 0) === 0
-                          ? "No assets"
-                          : `${client.assetCount} asset${client.assetCount !== 1 ? "s" : ""}`}
-                      </p>
-                    </div>
+                if (filtered.length === 0) {
+                  return <p className="text-slate-400 text-xs">No clients match your search.</p>;
+                }
+
+                return (
+                  <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: "10px" }}>
+                    {filtered.map((client) => (
+                      <div
+                        key={client.id}
+                        onClick={() => navigate(`/clients/${client.id}`)}
+                        className="border border-slate-200 rounded-md p-3 bg-white hover:border-slate-300 hover:shadow-sm transition-all cursor-pointer flex flex-col gap-2"
+                      >
+                        <p className="text-base font-semibold text-slate-900 truncate">
+                          {client.companyName ?? client.name}
+                        </p>
+                        <p className="text-[11px] text-slate-500">
+                          {(client.assetCount ?? 0) === 0
+                            ? "0 assets"
+                            : `${client.assetCount} asset${client.assetCount !== 1 ? "s" : ""}`}
+                        </p>
+                        <button
+                          disabled={generatingFor === client.id}
+                          onClick={(e) => { e.stopPropagation(); handleSharePortal(e, client.id); }}
+                          className="mt-auto w-full h-8 flex items-center justify-center gap-1.5 rounded-md bg-slate-900 text-white text-xs font-medium hover:bg-slate-700 transition-colors disabled:opacity-50"
+                        >
+                          <Share2 className="h-3 w-3" />
+                          {generatingFor === client.id ? "Generating…" : "Share Portal"}
+                        </button>
+                      </div>
+                    ))}
                   </div>
-                  <div className="flex items-center gap-2 shrink-0">
-                    <button
-                      disabled={generatingFor === client.id}
-                      onClick={(e) => handleSharePortal(e, client.id)}
-                      className="text-xs font-semibold px-3 py-1.5 rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-100 hover:border-slate-300 transition-colors disabled:opacity-50"
-                    >
-                      {generatingFor === client.id ? "Generating…" : "Share Portal"}
-                    </button>
-                    <svg
-                      className="h-4 w-4 text-slate-400"
-                      fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}
-                    >
-                      <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
-                    </svg>
-                  </div>
-                </div>
-              </Link>
-              ));
-            })()}
-          </div>
-        )}
-        {/* Settings */}
-        <div className="mt-12">
-          <div className="flex items-baseline gap-2 mb-4">
-            <h2 className="text-sm font-semibold text-slate-500 uppercase tracking-wide">Settings</h2>
+                );
+              })()
+            )}
           </div>
 
-          {/* Service keywords */}
-          <div className="bg-white rounded-xl shadow-sm border border-slate-200 px-6 py-5 mb-4">
-            <p className="text-sm font-semibold text-slate-700 mb-1">Service keywords</p>
-            <p className="text-xs text-slate-400 mb-4">
-              Only jobs whose title contains one of these keywords will count toward service due dates.
-              Separate multiple keywords with commas. Leave blank to count all jobs.
-            </p>
-            <div className="flex items-center gap-3">
+          {/* RIGHT: Settings sidebar */}
+          <div className="flex flex-col gap-3">
+
+            {/* Service keywords */}
+            <div className="bg-white rounded-lg border border-slate-200 p-4">
+              <p className="text-xs font-medium text-slate-700 mb-3">Service keywords</p>
               <input
                 type="text"
                 value={keywordsInput}
                 onChange={(e) => setKeywordsInput(e.target.value)}
                 onKeyDown={(e) => e.key === "Enter" && handleSaveKeywords()}
-                placeholder="e.g. Annual Service, PM, Preventative Maintenance"
-                className="flex-1 h-10 rounded-lg border border-slate-200 bg-slate-50 px-3 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-slate-300"
+                placeholder="e.g. Annual Service, PM"
+                className="w-full h-8 rounded-md border border-slate-200 bg-slate-50 px-2.5 text-xs text-slate-700 focus:outline-none focus:ring-2 focus:ring-slate-300 mb-2"
               />
               <button
                 onClick={handleSaveKeywords}
                 disabled={savingKeywords}
                 style={{ backgroundColor: savingKeywords ? undefined : "#1e293b" }}
-                className="h-10 px-4 rounded-lg text-sm font-semibold text-white bg-slate-700 hover:opacity-90 transition-opacity disabled:opacity-50 shrink-0"
+                className="w-full h-8 rounded-md text-xs font-semibold text-white bg-slate-700 hover:opacity-90 transition-opacity disabled:opacity-50"
               >
                 {savingKeywords ? "Saving…" : keywordsSaved ? "Saved!" : "Save"}
               </button>
             </div>
-          </div>
 
-          {/* Asset grouping field */}
-          <div className="bg-white rounded-xl shadow-sm border border-slate-200 px-6 py-5">
-            <p className="text-sm font-semibold text-slate-700 mb-1">Asset grouping field</p>
-            <p className="text-xs text-slate-400 mb-4">
-              The Jobber custom field used to identify and group assets across jobs.
-            </p>
-            {!showFieldPicker ? (
-              <div className="flex items-center justify-between gap-4">
-                <span className="text-sm text-slate-700">
-                  {assetFieldLabel
-                    ? <><span className="font-medium">{assetFieldLabel}</span></>
-                    : <span className="text-slate-400 italic">Not configured</span>}
-                </span>
-                <button
-                  onClick={handleOpenFieldPicker}
-                  className="text-xs font-semibold px-3 py-1.5 rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-100 hover:border-slate-300 transition-colors shrink-0"
-                >
-                  Change
-                </button>
-              </div>
-            ) : (
-              <div className="space-y-3">
-                {loadingFields ? (
-                  <p className="text-sm text-slate-400">Loading fields…</p>
-                ) : availableFields.length === 0 ? (
-                  <p className="text-sm text-slate-400">No custom fields found on Jobs.</p>
-                ) : (
-                  <select
-                    value={selectedFieldLabel}
-                    onChange={(e) => {
-                      const label = e.target.value;
-                      setSelectedFieldLabel(label);
-                      setSelectedFieldId(availableFields.find((f) => f.label === label)?.id ?? "");
-                    }}
-                    className="w-full h-10 rounded-lg border border-slate-200 bg-slate-50 px-3 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-slate-300"
-                  >
-                    <option value="" disabled>Select a field…</option>
-                    {availableFields.map((f) => (
-                      <option key={f.id} value={f.label}>{f.label}</option>
-                    ))}
-                  </select>
-                )}
-                <div className="flex items-center gap-2">
+            {/* Asset grouping field */}
+            <div className="bg-white rounded-lg border border-slate-200 p-4">
+              <p className="text-xs font-medium text-slate-700 mb-3">Asset grouping field</p>
+              {!showFieldPicker ? (
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-xs text-slate-700 truncate">
+                    {assetFieldLabel
+                      ? <span className="font-medium">{assetFieldLabel}</span>
+                      : <span className="text-slate-400 italic">Not configured</span>}
+                  </span>
                   <button
-                    onClick={handleSaveField}
-                    disabled={savingField || !selectedFieldLabel}
-                    style={{ backgroundColor: savingField ? undefined : "#1e293b" }}
-                    className="h-9 px-4 rounded-lg text-sm font-semibold text-white bg-slate-700 hover:opacity-90 transition-opacity disabled:opacity-50"
+                    onClick={handleOpenFieldPicker}
+                    className="text-xs font-semibold px-2.5 py-1 rounded-md border border-slate-200 text-slate-600 hover:bg-slate-100 transition-colors shrink-0"
                   >
-                    {savingField ? "Saving…" : "Save"}
-                  </button>
-                  <button
-                    onClick={() => setShowFieldPicker(false)}
-                    className="h-9 px-4 rounded-lg text-sm text-slate-500 border border-slate-200 hover:bg-slate-50 transition-colors"
-                  >
-                    Cancel
+                    Change
                   </button>
                 </div>
-              </div>
-            )}
+              ) : (
+                <div className="space-y-2">
+                  {loadingFields ? (
+                    <p className="text-xs text-slate-400">Loading fields…</p>
+                  ) : availableFields.length === 0 ? (
+                    <p className="text-xs text-slate-400">No custom fields found on Jobs.</p>
+                  ) : (
+                    <select
+                      value={selectedFieldLabel}
+                      onChange={(e) => {
+                        const label = e.target.value;
+                        setSelectedFieldLabel(label);
+                        setSelectedFieldId(availableFields.find((f) => f.label === label)?.id ?? "");
+                      }}
+                      className="w-full h-8 rounded-md border border-slate-200 bg-slate-50 px-2 text-xs text-slate-700 focus:outline-none focus:ring-2 focus:ring-slate-300"
+                    >
+                      <option value="" disabled>Select a field…</option>
+                      {availableFields.map((f) => (
+                        <option key={f.id} value={f.label}>{f.label}</option>
+                      ))}
+                    </select>
+                  )}
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={handleSaveField}
+                      disabled={savingField || !selectedFieldLabel}
+                      style={{ backgroundColor: savingField ? undefined : "#1e293b" }}
+                      className="h-8 px-3 rounded-md text-xs font-semibold text-white bg-slate-700 hover:opacity-90 transition-opacity disabled:opacity-50"
+                    >
+                      {savingField ? "Saving…" : "Save"}
+                    </button>
+                    <button
+                      onClick={() => setShowFieldPicker(false)}
+                      className="h-8 px-3 rounded-md text-xs text-slate-500 border border-slate-200 hover:bg-slate-50 transition-colors"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+
           </div>
         </div>
 

@@ -1,7 +1,8 @@
 import { useState, useEffect } from "react";
 import { API } from "@/lib/api";
 import { BillingModal } from "@/components/BillingModal";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useLocation } from "react-router-dom";
+import { RefreshCw } from "lucide-react";
 
 interface NavProps {
   left?: React.ReactNode;
@@ -9,13 +10,17 @@ interface NavProps {
   onSyncComplete?: () => void | Promise<void>;
 }
 
-export function Nav({ left, right, onSyncComplete }: NavProps) {
+export function Nav({ left, right: _right, onSyncComplete }: NavProps) {
   const [syncing, setSyncing] = useState(false);
   const [syncError, setSyncError] = useState<string | null>(null);
   const [billingOpen, setBillingOpen] = useState(false);
   const jobberAccountId = localStorage.getItem("jobberAccountId");
   const [unassignedCount, setUnassignedCount] = useState(0);
+  const [accountName, setAccountName] = useState<string | null>(null);
+  const [disconnecting, setDisconnecting] = useState(false);
   const navigate = useNavigate();
+  const location = useLocation();
+  const isDashboard = location.pathname === "/dashboard";
 
   useEffect(() => {
     if (!jobberAccountId) return;
@@ -23,15 +28,29 @@ export function Nav({ left, right, onSyncComplete }: NavProps) {
       .then((r) => r.ok ? r.json() : null)
       .then((data: { count: number } | null) => { if (data) setUnassignedCount(data.count); })
       .catch(() => {});
+    fetch(`${API}/api/me?jobberAccountId=${encodeURIComponent(jobberAccountId)}`)
+      .then((r) => r.ok ? r.json() : null)
+      .then((data: { accountName: string } | null) => { if (data) setAccountName(data.accountName); })
+      .catch(() => {});
   }, [jobberAccountId]);
+
+  async function handleDisconnect() {
+    if (!jobberAccountId) return;
+    if (!window.confirm("Disconnect AssetMinder from Jobber? This will delete all synced data and revoke access. This cannot be undone.")) return;
+    setDisconnecting(true);
+    try {
+      await fetch(`${API}/api/disconnect`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ jobberAccountId }) });
+    } catch { /* continue */ } finally {
+      localStorage.removeItem("jobberAccountId");
+      navigate("/");
+    }
+  }
 
   async function handleSync() {
     if (!jobberAccountId) return;
     setSyncing(true);
     setSyncError(null);
     try {
-      // Backend runs the full pipeline (sync → group → calculate) and responds
-      // immediately. We wait a few seconds then reload data.
       const res = await fetch(`${API}/api/sync`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ jobberAccountId }) });
       if (!res.ok) {
         const data = await res.json() as { error?: string };
@@ -51,43 +70,103 @@ export function Nav({ left, right, onSyncComplete }: NavProps) {
 
   return (
     <>
-      <header style={{ backgroundColor: "#1e293b" }}>
-        <div className="max-w-3xl mx-auto px-6 py-4 flex items-center justify-between gap-4">
-          <div className="flex items-center gap-3 min-w-0">
-            {left}
-          </div>
-          <div className="flex items-center gap-3 shrink-0">
-            {right}
-            {unassignedCount > 0 && (
-              <button
-                onClick={() => navigate("/unassigned-jobs")}
-                className="hidden sm:flex items-center gap-1.5 text-xs text-slate-400 hover:text-white transition-colors"
-              >
-                Unassigned
-                <span className="inline-flex items-center justify-center h-4 min-w-4 rounded-full bg-amber-500 px-1 text-[10px] font-semibold text-white">
-                  {unassignedCount}
-                </span>
-              </button>
-            )}
-            <button
-              onClick={() => setBillingOpen(true)}
-              className="text-xs text-slate-400 hover:text-white transition-colors hidden sm:block"
-            >
-              Billing
-            </button>
-            <button
-              onClick={handleSync}
-              disabled={syncing}
-              className="inline-flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg bg-white/10 text-white hover:bg-white/20 transition-colors disabled:opacity-50"
-            >
-              <svg className={`h-3.5 w-3.5 ${syncing ? "animate-spin" : ""}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-              </svg>
-              {syncing ? "Syncing…" : "Sync Jobber"}
-            </button>
-          </div>
+      <div style={{ backgroundColor: "#0F172A", borderRadius: "8px", overflow: "hidden" }}>
+
+        {/* Top tier: brand + connection status */}
+        <div
+          className="flex items-center"
+          style={{ padding: "14px 28px", borderBottom: "0.5px solid #1E293B" }}
+        >
+          <span style={{ fontSize: "24px", fontWeight: 700, color: "white", letterSpacing: "-0.2px" }}>
+            AssetMinder
+          </span>
+          {accountName && (
+            <div className="ml-auto hidden sm:flex items-center gap-2">
+              <span className="h-2 w-2 rounded-full shrink-0" style={{ backgroundColor: "#4ADE80" }} />
+              <span style={{ fontSize: "12px", color: "#94A3B8" }}>
+                Connected as{" "}
+                <span style={{ color: "white", fontWeight: 500 }}>{accountName}</span>
+              </span>
+            </div>
+          )}
         </div>
-      </header>
+
+        {/* Bottom tier: nav links (or breadcrumb) + sync */}
+        <div
+          className="flex items-center justify-between"
+          style={{ padding: "10px 28px", gap: "20px" }}
+        >
+          {isDashboard ? (
+            /* Dashboard nav links */
+            <div className="flex items-center" style={{ gap: "24px" }}>
+              <button
+                onClick={() => navigate("/dashboard")}
+                style={{
+                  fontSize: "13px", color: "white", fontWeight: 500,
+                  paddingBottom: "6px", borderBottom: "2px solid white",
+                  background: "none", borderTop: "none", borderLeft: "none", borderRight: "none",
+                  cursor: "pointer",
+                }}
+              >
+                Dashboard
+              </button>
+              <button
+                onClick={handleDisconnect}
+                disabled={disconnecting}
+                className="hover:text-white transition-colors disabled:opacity-50"
+                style={{ fontSize: "13px", color: "#94A3B8", background: "none", border: "none", cursor: "pointer" }}
+              >
+                {disconnecting ? "Disconnecting…" : "Disconnect"}
+              </button>
+              {unassignedCount > 0 && (
+                <button
+                  onClick={() => navigate("/unassigned-jobs")}
+                  className="hidden sm:flex items-center gap-1.5 hover:text-white transition-colors"
+                  style={{ fontSize: "13px", color: "#94A3B8", background: "none", border: "none", cursor: "pointer" }}
+                >
+                  Unassigned
+                  <span
+                    className="inline-flex items-center justify-center rounded-full text-white"
+                    style={{ backgroundColor: "#F59E0B", fontSize: "10px", fontWeight: 600, padding: "1px 7px" }}
+                  >
+                    {unassignedCount}
+                  </span>
+                </button>
+              )}
+              <button
+                onClick={() => setBillingOpen(true)}
+                className="hidden sm:block hover:text-white transition-colors"
+                style={{ fontSize: "13px", color: "#94A3B8", background: "none", border: "none", cursor: "pointer" }}
+              >
+                Billing
+              </button>
+            </div>
+          ) : (
+            /* Sub-page breadcrumb from left prop */
+            <div className="flex items-center gap-2 min-w-0">
+              {left}
+            </div>
+          )}
+
+          {/* Sync button — always right */}
+          <button
+            onClick={handleSync}
+            disabled={syncing}
+            className="flex items-center shrink-0 disabled:opacity-50 hover:opacity-90 transition-opacity"
+            style={{
+              backgroundColor: "white", color: "#0F172A",
+              padding: "7px 14px", borderRadius: "6px",
+              fontSize: "13px", fontWeight: 500, gap: "4px",
+              border: "none", cursor: "pointer",
+            }}
+          >
+            <RefreshCw className={`h-3.5 w-3.5 ${syncing ? "animate-spin" : ""}`} />
+            {syncing ? "Syncing…" : "Sync Jobber"}
+          </button>
+        </div>
+
+      </div>
+
       {syncError && (
         <div className="bg-red-50 border-b border-red-200 px-6 py-2 text-center">
           <p className="text-xs text-red-600 font-medium">{syncError}</p>
