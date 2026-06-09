@@ -1,13 +1,11 @@
 import { Router, Request, Response } from "express";
-import Stripe from "stripe";
 import { db } from "../db/client";
 import { jobberOrgs } from "../db/schema";
 import { eq } from "drizzle-orm";
+import stripe from "../lib/stripe";
 
 const router = Router();
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-const stripe = new (Stripe as any)(process.env.STRIPE_SECRET_KEY!);
 const WEBHOOK_SECRET = process.env.STRIPE_WEBHOOK_SECRET!;
 const PRICE_ID = process.env.STRIPE_PRICE_ID!;
 
@@ -143,10 +141,10 @@ router.get("/status", async (req: Request, res: Response) => {
   let nextBillingDate: string | null = null;
   if (org.subscriptionStatus === "active" && org.stripeSubscriptionId) {
     try {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const sub = await (stripe as any).subscriptions.retrieve(org.stripeSubscriptionId);
-      if (sub.current_period_end) {
-        nextBillingDate = new Date(sub.current_period_end * 1000).toISOString();
+      const sub = await stripe.subscriptions.retrieve(org.stripeSubscriptionId, { expand: ["items"] });
+      const periodEnd = sub.items.data[0]?.current_period_end;
+      if (periodEnd) {
+        nextBillingDate = new Date(periodEnd * 1000).toISOString();
       }
     } catch {
       // non-fatal — next billing date stays null

@@ -176,7 +176,7 @@ export default function Dashboard() {
 
   async function handleDisconnect() {
     if (!jobberAccountId) return;
-    if (!window.confirm("Disconnect AssetMinder from Jobber? This will delete all synced data and revoke access. This cannot be undone.")) return;
+    if (!window.confirm("Disconnecting will cancel your AssetMinder subscription immediately and permanently delete your stored data. This cannot be undone.")) return;
     setDisconnecting(true);
     try {
       await fetch(`${API}/api/disconnect`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ jobberAccountId }) });

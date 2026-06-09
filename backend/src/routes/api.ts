@@ -7,6 +7,7 @@ import { syncOrg } from "../lib/sync";
 import { groupAssets } from "../lib/groupAssets";
 import { calculateDueDates } from "../lib/calculateDueDates";
 import { deleteOrgData } from "../lib/deleteOrg";
+import stripe from "../lib/stripe";
 import { db } from "../db/client";
 import { jobberOrgs, assets, jobs, jobCustomFields, clients, jobLineItems, orgSettings, excludedPhotos } from "../db/schema";
 
@@ -1651,7 +1652,30 @@ router.post("/disconnect", async (req: Request, res: Response) => {
   }
 
   try {
-    // Call Jobber's appDisconnect mutation before deleting local data so the token is still valid.
+    // Step 1: Cancel Stripe subscription before data is gone
+    const [org] = await db
+      .select()
+      .from(jobberOrgs)
+      .where(eq(jobberOrgs.jobberAccountId, jobberAccountId))
+      .limit(1);
+
+    if (org?.stripeSubscriptionId) {
+      try {
+        await stripe.subscriptions.cancel(org.stripeSubscriptionId);
+        console.log(`[disconnect] Stripe subscription ${org.stripeSubscriptionId} cancelled immediately`);
+      } catch (err: unknown) {
+        const code = (err as { code?: string })?.code;
+        if (code === "resource_missing") {
+          console.log(`[disconnect] Stripe subscription ${org.stripeSubscriptionId} not found — skipping`);
+        } else {
+          console.warn(`[disconnect] Stripe cancellation error (non-blocking):`, String(err));
+        }
+      }
+    } else {
+      console.log(`[disconnect] no stripeSubscriptionId for ${jobberAccountId} — skipping Stripe step`);
+    }
+
+    // Step 2: Call Jobber's appDisconnect mutation before deleting local data so the token is still valid.
     let accessToken: string | null = null;
     try {
       accessToken = await getValidToken(jobberAccountId);
@@ -1678,7 +1702,7 @@ router.post("/disconnect", async (req: Request, res: Response) => {
       }
     }
 
-    // Delete all local data for this org
+    // Step 3: Delete all local data for this org
     await deleteOrgData(jobberAccountId);
 
     res.json({ ok: true });
