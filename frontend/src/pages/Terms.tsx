@@ -48,7 +48,7 @@ export default function Terms() {
           <section>
             <h2 className="text-base font-semibold text-slate-800 mb-3">4. Subscription and Billing</h2>
             <p>
-              Access to AssetMinder is provided through the Jobber Marketplace. Subscription fees, billing cycles, and payment processing are handled entirely by Jobber Inc. in accordance with their marketplace terms. AssetMinder does not directly collect payment information. Please refer to your Jobber subscription details for pricing information.
+              Subscription fees and payment processing for AssetMinder are handled by AssetMinder via Stripe. Access begins with a 14-day free trial; thereafter a paid subscription is required to continue using the service. Payment information is collected and processed by Stripe, Inc. AssetMinder does not store full card details on its servers.
             </p>
           </section>
 
