@@ -55,7 +55,7 @@ export default function Terms() {
           <section>
             <h2 className="text-base font-semibold text-slate-800 mb-3">5. Termination</h2>
             <p>
-              You may terminate your use of AssetMinder at any time by disconnecting AssetMinder from your Jobber account via the Jobber Developer settings. Upon disconnection, your access to the AssetMinder dashboard and all client portals will be revoked. Stored data associated with your account will be deleted within 30 days of disconnection. We reserve the right to suspend or terminate access for accounts that violate these terms.
+              You may terminate your use of AssetMinder at any time by disconnecting via the AssetMinder dashboard. Upon disconnection, your active subscription will be cancelled immediately, your access to the AssetMinder dashboard and all client portals will be revoked, and all stored data associated with your account will be permanently deleted. We reserve the right to suspend or terminate access for accounts that violate these terms.
             </p>
           </section>
 
