@@ -1,8 +1,8 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { API } from "@/lib/api";
 import { BillingModal } from "@/components/BillingModal";
 import { useNavigate, useLocation } from "react-router-dom";
-import { RefreshCw } from "lucide-react";
+import { ChevronDown, RefreshCw, User } from "lucide-react";
 
 interface NavProps {
   left?: React.ReactNode;
@@ -18,6 +18,8 @@ export function Nav({ left, right: _right, onSyncComplete }: NavProps) {
   const [unassignedCount, setUnassignedCount] = useState(0);
   const [accountName, setAccountName] = useState<string | null>(null);
   const [disconnecting, setDisconnecting] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const menuRef = useRef<HTMLDivElement>(null);
   const navigate = useNavigate();
   const location = useLocation();
   const isDashboard = location.pathname === "/dashboard";
@@ -34,6 +36,23 @@ export function Nav({ left, right: _right, onSyncComplete }: NavProps) {
       .catch(() => {});
   }, [jobberAccountId]);
 
+  // Close the account menu on outside-click or Escape
+  useEffect(() => {
+    if (!menuOpen) return;
+    function onPointerDown(e: MouseEvent) {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) setMenuOpen(false);
+    }
+    function onKeyDown(e: KeyboardEvent) {
+      if (e.key === "Escape") setMenuOpen(false);
+    }
+    document.addEventListener("mousedown", onPointerDown);
+    document.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.removeEventListener("mousedown", onPointerDown);
+      document.removeEventListener("keydown", onKeyDown);
+    };
+  }, [menuOpen]);
+
   async function handleDisconnect() {
     if (!jobberAccountId) return;
     if (!window.confirm("Disconnecting will cancel your AssetMinder subscription immediately and permanently delete your stored data. This cannot be undone.")) return;
@@ -44,6 +63,11 @@ export function Nav({ left, right: _right, onSyncComplete }: NavProps) {
       localStorage.removeItem("jobberAccountId");
       navigate("/");
     }
+  }
+
+  function handleLogout() {
+    localStorage.removeItem("jobberAccountId");
+    navigate("/connect");
   }
 
   async function handleSync() {
@@ -70,7 +94,7 @@ export function Nav({ left, right: _right, onSyncComplete }: NavProps) {
 
   return (
     <>
-      <div style={{ backgroundColor: "#0F172A", borderRadius: "8px", overflow: "hidden" }}>
+      <div style={{ backgroundColor: "#0F172A", borderRadius: "8px" }}>
 
         {/* Top tier: brand + connection status */}
         <div
@@ -110,14 +134,6 @@ export function Nav({ left, right: _right, onSyncComplete }: NavProps) {
               >
                 Dashboard
               </button>
-              <button
-                onClick={handleDisconnect}
-                disabled={disconnecting}
-                className="hover:text-white transition-colors disabled:opacity-50"
-                style={{ fontSize: "13px", color: "#94A3B8", background: "none", border: "none", cursor: "pointer" }}
-              >
-                {disconnecting ? "Disconnecting…" : "Disconnect"}
-              </button>
               {unassignedCount > 0 && (
                 <button
                   onClick={() => navigate("/unassigned-jobs")}
@@ -133,13 +149,6 @@ export function Nav({ left, right: _right, onSyncComplete }: NavProps) {
                   </span>
                 </button>
               )}
-              <button
-                onClick={() => setBillingOpen(true)}
-                className="hidden sm:block hover:text-white transition-colors"
-                style={{ fontSize: "13px", color: "#94A3B8", background: "none", border: "none", cursor: "pointer" }}
-              >
-                Billing
-              </button>
             </div>
           ) : (
             /* Sub-page breadcrumb from left prop */
@@ -148,21 +157,73 @@ export function Nav({ left, right: _right, onSyncComplete }: NavProps) {
             </div>
           )}
 
-          {/* Sync button — always right */}
-          <button
-            onClick={handleSync}
-            disabled={syncing}
-            className="flex items-center shrink-0 disabled:opacity-50 hover:opacity-90 transition-opacity"
-            style={{
-              backgroundColor: "white", color: "#0F172A",
-              padding: "7px 14px", borderRadius: "6px",
-              fontSize: "13px", fontWeight: 500, gap: "4px",
-              border: "none", cursor: "pointer",
-            }}
-          >
-            <RefreshCw className={`h-3.5 w-3.5 ${syncing ? "animate-spin" : ""}`} />
-            {syncing ? "Syncing…" : "Sync Jobber"}
-          </button>
+          {/* Account menu + Sync button — always right */}
+          <div className="flex items-center shrink-0" style={{ gap: "16px" }}>
+            {jobberAccountId && (
+              <div ref={menuRef} className="relative">
+                <button
+                  onClick={() => setMenuOpen((o) => !o)}
+                  className="flex items-center gap-2 bg-[rgba(255,255,255,0.1)] hover:bg-[rgba(255,255,255,0.15)] transition-colors"
+                  style={{
+                    padding: "7px 14px",
+                    borderRadius: "6px",
+                    border: "0.5px solid rgba(255,255,255,0.2)",
+                    fontSize: "14px",
+                    fontWeight: 500,
+                    color: "white",
+                    cursor: "pointer",
+                  }}
+                >
+                  <User className="h-3.5 w-3.5" />
+                  {accountName ?? "Account"}
+                  <ChevronDown className="h-3.5 w-3.5" />
+                </button>
+                {menuOpen && (
+                  <div
+                    className="absolute right-0 mt-2 bg-white border border-slate-200 rounded-md shadow-md overflow-hidden z-50"
+                    style={{ width: "180px" }}
+                  >
+                    <button
+                      onClick={() => { setMenuOpen(false); handleLogout(); }}
+                      className="flex items-center w-full h-9 px-3 text-sm text-left bg-transparent hover:bg-slate-50 cursor-pointer"
+                      style={{ border: "none" }}
+                    >
+                      Log out
+                    </button>
+                    <button
+                      onClick={() => { setMenuOpen(false); setBillingOpen(true); }}
+                      className="flex items-center w-full h-9 px-3 text-sm text-left bg-transparent hover:bg-slate-50 cursor-pointer"
+                      style={{ border: "none" }}
+                    >
+                      Billing
+                    </button>
+                    <button
+                      onClick={() => { setMenuOpen(false); handleDisconnect(); }}
+                      disabled={disconnecting}
+                      className="flex items-center w-full h-9 px-3 text-sm text-left text-red-600 bg-transparent hover:bg-slate-50 cursor-pointer disabled:opacity-50"
+                      style={{ border: "none", borderTop: "1px solid #E2E8F0" }}
+                    >
+                      {disconnecting ? "Disconnecting…" : "Disconnect"}
+                    </button>
+                  </div>
+                )}
+              </div>
+            )}
+            <button
+              onClick={handleSync}
+              disabled={syncing}
+              className="flex items-center shrink-0 disabled:opacity-50 hover:opacity-90 transition-opacity"
+              style={{
+                backgroundColor: "white", color: "#0F172A",
+                padding: "7px 14px", borderRadius: "6px",
+                fontSize: "13px", fontWeight: 500, gap: "4px",
+                border: "none", cursor: "pointer",
+              }}
+            >
+              <RefreshCw className={`h-3.5 w-3.5 ${syncing ? "animate-spin" : ""}`} />
+              {syncing ? "Syncing…" : "Sync Jobber"}
+            </button>
+          </div>
         </div>
 
       </div>

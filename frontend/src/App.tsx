@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { HashRouter, Routes, Route, Navigate } from "react-router-dom";
 import Landing from "@/pages/Landing";
 import OAuthCallback from "@/pages/OAuthCallback";
+import Connect from "@/pages/Connect";
 import Onboarding from "@/pages/Onboarding";
 import Dashboard from "@/pages/Dashboard";
 import AssetDetail from "@/pages/AssetDetail";
@@ -39,6 +40,7 @@ export default function App() {
         <Routes>
           <Route path="/" element={<Landing />} />
           <Route path="/oauth/callback" element={<OAuthCallback />} />
+          <Route path="/connect" element={<Connect />} />
           <Route path="/onboarding" element={<RequireAuth><Onboarding /></RequireAuth>} />
           <Route path="/dashboard" element={<RequireAuth><Dashboard /></RequireAuth>} />
           <Route path="/clients/:clientId" element={<RequireAuth><ClientDetail /></RequireAuth>} />
