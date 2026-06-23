@@ -48,6 +48,35 @@ async function jobberGql<T>(accessToken: string, query: string, attempt = 1): Pr
   return json.data as T;
 }
 
+// Writes a single text custom-field value back to a Jobber job via jobEdit.
+// Throws on transport errors, GraphQL errors, or jobEdit userErrors.
+async function writeAssetIdToJobber(
+  accessToken: string,
+  jobberJobId: string,
+  fieldConfigId: string,
+  value: string,
+): Promise<void> {
+  const mutation = `
+    mutation {
+      jobEdit(
+        jobId: ${JSON.stringify(jobberJobId)}
+        input: {
+          customFields: [
+            { id: ${JSON.stringify(fieldConfigId)}, valueText: ${JSON.stringify(value)} }
+          ]
+        }
+      ) {
+        job { id }
+        userErrors { message path }
+      }
+    }
+  `;
+
+  const data = await jobberGql<{ jobEdit: { userErrors: { message: string }[] } }>(accessToken, mutation);
+  const errs = data.jobEdit?.userErrors ?? [];
+  if (errs.length) throw new Error(errs.map((e) => e.message).join(", "));
+}
+
 async function requireOrg(jobberAccountId: string) {
   const [org] = await db
     .select()
@@ -390,6 +419,22 @@ router.post("/assets/from-jobs", async (req: Request, res: Response) => {
       return;
     }
 
+    // Write the Asset ID back to Jobber FIRST; only persist locally if every
+    // write succeeds, so we never leave a local-only value that a later resync
+    // would clobber. Skipped only if no custom-field config ID is mapped.
+    if (org.assetIdentifierFieldId) {
+      const token = await getValidToken(jobberAccountId);
+      try {
+        for (const job of jobRows) {
+          await writeAssetIdToJobber(token, job.jobberJobId, org.assetIdentifierFieldId, displayName);
+        }
+      } catch (err) {
+        console.error("[assets/from-jobs] Jobber write-back failed:", String(err));
+        res.status(502).json({ error: "Couldn't save the Asset ID to Jobber — please try again. No changes were made." });
+        return;
+      }
+    }
+
     // Create the asset
     const assetId = crypto.randomUUID();
     await db.insert(assets).values({
@@ -509,6 +554,22 @@ router.post("/assets/:assetId/add-jobs", async (req: Request, res: Response) => 
     if (jobRows.length === 0) {
       res.status(400).json({ error: "No valid jobs found for this org" });
       return;
+    }
+
+    // Write the Asset ID back to Jobber FIRST; only persist locally if every
+    // write succeeds, so we never leave a local-only value that a later resync
+    // would clobber. Skipped only if no custom-field config ID is mapped.
+    if (org.assetIdentifierFieldId) {
+      const token = await getValidToken(jobberAccountId);
+      try {
+        for (const job of jobRows) {
+          await writeAssetIdToJobber(token, job.jobberJobId, org.assetIdentifierFieldId, asset.identifier);
+        }
+      } catch (err) {
+        console.error("[assets/add-jobs] Jobber write-back failed:", String(err));
+        res.status(502).json({ error: "Couldn't save the Asset ID to Jobber — please try again. No changes were made." });
+        return;
+      }
     }
 
     // Write custom field entries for each job

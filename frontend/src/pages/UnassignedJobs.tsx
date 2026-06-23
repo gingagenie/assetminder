@@ -237,7 +237,11 @@ function CreateAssetModal({
         body: JSON.stringify({ jobberAccountId, jobberJobIds: selectedJobberJobIds, displayName: name.trim(), clientId }),
       });
       if (res.status === 409) { setError("An asset with that name already exists."); return; }
-      if (!res.ok) { setError("Failed to create asset. Please try again."); return; }
+      if (!res.ok) {
+        const data = await res.json().catch(() => null);
+        setError(data?.error || "Failed to create asset. Please try again.");
+        return;
+      }
       reset();
       onSuccess();
     } catch { setError("Failed to create asset. Please try again."); }
@@ -382,7 +386,11 @@ function AddToAssetModal({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ jobberAccountId, jobberJobIds: selectedJobberJobIds }),
       });
-      if (!res.ok) { setError("Failed to add jobs. Please try again."); return; }
+      if (!res.ok) {
+        const data = await res.json().catch(() => null);
+        setError(data?.error || "Failed to add jobs. Please try again.");
+        return;
+      }
       reset();
       onSuccess();
     } catch { setError("Failed to add jobs. Please try again."); }
