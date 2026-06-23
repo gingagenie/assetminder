@@ -77,6 +77,14 @@ async function writeAssetIdToJobber(
   if (errs.length) throw new Error(errs.map((e) => e.message).join(", "));
 }
 
+// True when Jobber rejected the write because the token lacks the write_jobs
+// scope (e.g. "An object of type JobEdit was hidden due to permissions"). This
+// happens for accounts connected before write_jobs was requested, until they
+// reconnect. In that case we fall back to a local-only save instead of failing.
+function isJobberPermissionError(err: unknown): boolean {
+  return /hidden due to permissions|permission/i.test(String(err));
+}
+
 async function requireOrg(jobberAccountId: string) {
   const [org] = await db
     .select()
@@ -429,9 +437,15 @@ router.post("/assets/from-jobs", async (req: Request, res: Response) => {
           await writeAssetIdToJobber(token, job.jobberJobId, org.assetIdentifierFieldId, displayName);
         }
       } catch (err) {
-        console.error("[assets/from-jobs] Jobber write-back failed:", String(err));
-        res.status(502).json({ error: "Couldn't save the Asset ID to Jobber — please try again. No changes were made." });
-        return;
+        if (isJobberPermissionError(err)) {
+          // Token lacks write_jobs (account connected before the scope was added).
+          // Save locally so creation still works; write-back resumes after reconnect.
+          console.warn("[assets/from-jobs] Jobber write-back skipped (missing write_jobs scope):", String(err));
+        } else {
+          console.error("[assets/from-jobs] Jobber write-back failed:", String(err));
+          res.status(502).json({ error: "Couldn't save the Asset ID to Jobber — please try again. No changes were made." });
+          return;
+        }
       }
     }
 
@@ -566,9 +580,15 @@ router.post("/assets/:assetId/add-jobs", async (req: Request, res: Response) => 
           await writeAssetIdToJobber(token, job.jobberJobId, org.assetIdentifierFieldId, asset.identifier);
         }
       } catch (err) {
-        console.error("[assets/add-jobs] Jobber write-back failed:", String(err));
-        res.status(502).json({ error: "Couldn't save the Asset ID to Jobber — please try again. No changes were made." });
-        return;
+        if (isJobberPermissionError(err)) {
+          // Token lacks write_jobs (account connected before the scope was added).
+          // Save locally so adding jobs still works; write-back resumes after reconnect.
+          console.warn("[assets/add-jobs] Jobber write-back skipped (missing write_jobs scope):", String(err));
+        } else {
+          console.error("[assets/add-jobs] Jobber write-back failed:", String(err));
+          res.status(502).json({ error: "Couldn't save the Asset ID to Jobber — please try again. No changes were made." });
+          return;
+        }
       }
     }
 

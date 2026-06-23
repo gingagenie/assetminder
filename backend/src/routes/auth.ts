@@ -7,7 +7,7 @@ import crypto from "crypto";
 const JOBBER_AUTH_URL = "https://api.getjobber.com/api/oauth/authorize";
 const JOBBER_TOKEN_URL = "https://api.getjobber.com/api/oauth/token";
 const JOBBER_API_VERSION = "2025-04-16";
-const SCOPES = "read_clients read_jobs read_custom_field_configurations write_custom_field_configurations read_users";
+const SCOPES = "read_clients read_jobs write_jobs read_custom_field_configurations write_custom_field_configurations read_users";
 
 const router = Router();
 
