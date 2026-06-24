@@ -1042,53 +1042,19 @@ router.post("/jobs/:jobId/set-asset-id", async (req: Request, res: Response) => 
 
     const accessToken = await getValidToken(jobberAccountId);
 
-    // Fetch the custom field instance ID from Jobber
-    const fetchQuery = `{
-      job(id: ${JSON.stringify(job.jobberJobId)}) {
-        customFields {
-          ... on CustomFieldText { id label valueText }
+    // Push the value to Jobber if we have the config ID; fall back to local-only if missing scope
+    if (org.assetIdentifierFieldId) {
+      try {
+        await writeAssetIdToJobber(accessToken, job.jobberJobId, org.assetIdentifierFieldId, value);
+      } catch (err) {
+        if (isJobberPermissionError(err)) {
+          console.warn("[set-asset-id] Jobber write-back skipped (missing write_jobs scope):", String(err));
+        } else {
+          console.error("[set-asset-id] Jobber write-back failed:", String(err));
+          res.status(502).json({ error: "Couldn't save the Asset ID to Jobber — please try again." });
+          return;
         }
       }
-    }`;
-
-    const fetchData = await jobberGql<{
-      job?: { customFields: { id?: string; label?: string; valueText?: string | null }[] };
-    }>(accessToken, fetchQuery);
-
-    const fieldInstance = fetchData.job?.customFields.find((cf) => cf.label === fieldLabel);
-    if (!fieldInstance?.id) {
-      res.status(400).json({
-        error: `Custom field "${fieldLabel}" not found on this job in Jobber. Try syncing first.`,
-      });
-      return;
-    }
-
-    // Push the value to Jobber
-    const updateMutation = `
-      mutation {
-        customFieldUpdate(input: {
-          id: ${JSON.stringify(fieldInstance.id)}
-          valueText: ${JSON.stringify(value)}
-        }) {
-          customField {
-            ... on CustomFieldText { id valueText }
-          }
-          userErrors { message }
-        }
-      }
-    `;
-
-    const updateData = await jobberGql<{
-      customFieldUpdate: {
-        customField: { id: string; valueText: string } | null;
-        userErrors: { message: string }[];
-      };
-    }>(accessToken, updateMutation);
-
-    const userErrors = updateData.customFieldUpdate?.userErrors ?? [];
-    if (userErrors.length > 0) {
-      res.status(400).json({ error: userErrors.map((e) => e.message).join(", ") });
-      return;
     }
 
     // Update local DB

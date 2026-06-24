@@ -17,7 +17,7 @@
     "express-rate-limit": "^8.3.2",
     "pdfkit": "^0.18.0",
     "postgres": "^3.4.5",
-    "stripe": "^22.1.0"
+    "stripe": "^22.2.3"
   },
   "devDependencies": {
     "@types/cors": "^2.8.17",
