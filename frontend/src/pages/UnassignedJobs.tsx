@@ -243,6 +243,7 @@ function CreateAssetModal({
         return;
       }
       reset();
+      onClose();
       onSuccess();
     } catch { setError("Failed to create asset. Please try again."); }
     finally { setSubmitting(false); }
