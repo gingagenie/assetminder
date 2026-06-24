@@ -48,32 +48,41 @@ async function jobberGql<T>(accessToken: string, query: string, attempt = 1): Pr
   return json.data as T;
 }
 
-// Writes a single text custom-field value back to a Jobber job via jobEdit.
-// Throws on transport errors, GraphQL errors, or jobEdit userErrors.
+// Jobber stores custom field instance IDs as base64("{jobNumericId}::{configNumericId}").
+// Both the job GID and config GID are themselves base64-encoded (e.g. base64("gid://Jobber/Job/123")).
+// We decode each GID, extract the trailing numeric segment, then re-encode the compound key.
+function computeCustomFieldInstanceId(jobberJobId: string, fieldConfigId: string): string {
+  const jobNumericId = Buffer.from(jobberJobId, "base64").toString("utf8").split("/").pop()!;
+  const configNumericId = Buffer.from(fieldConfigId, "base64").toString("utf8").split("/").pop()!;
+  return Buffer.from(`${jobNumericId}::${configNumericId}`).toString("base64");
+}
+
+// Writes a single text custom-field value back to Jobber via customFieldUpdate.
+// Throws on transport errors, GraphQL errors, or userErrors.
 async function writeAssetIdToJobber(
   accessToken: string,
   jobberJobId: string,
   fieldConfigId: string,
   value: string,
 ): Promise<void> {
+  const instanceId = computeCustomFieldInstanceId(jobberJobId, fieldConfigId);
+
   const mutation = `
     mutation {
-      jobEdit(
-        jobId: ${JSON.stringify(jobberJobId)}
-        input: {
-          customFields: [
-            { id: ${JSON.stringify(fieldConfigId)}, valueText: ${JSON.stringify(value)} }
-          ]
+      customFieldUpdate(input: {
+        id: ${JSON.stringify(instanceId)}
+        valueText: ${JSON.stringify(value)}
+      }) {
+        customField {
+          ... on CustomFieldText { id valueText }
         }
-      ) {
-        job { id }
-        userErrors { message path }
+        userErrors { message }
       }
     }
   `;
 
-  const data = await jobberGql<{ jobEdit: { userErrors: { message: string }[] } }>(accessToken, mutation);
-  const errs = data.jobEdit?.userErrors ?? [];
+  const data = await jobberGql<{ customFieldUpdate: { userErrors: { message: string }[] } }>(accessToken, mutation);
+  const errs = data.customFieldUpdate?.userErrors ?? [];
   if (errs.length) throw new Error(errs.map((e) => e.message).join(", "));
 }
 
@@ -98,62 +107,6 @@ async function requireOrg(jobberAccountId: string) {
 function isDisconnectError(err: unknown): boolean {
   return String(err).includes("disconnected this app");
 }
-
-// ---------- GET /api/debug/jobEdit-schema (temp) ----------
-
-router.get("/debug/jobEdit-schema", async (req: Request, res: Response) => {
-  const { jobberAccountId } = req.query;
-  if (!jobberAccountId || typeof jobberAccountId !== "string") {
-    res.status(400).json({ error: "Missing jobberAccountId" });
-    return;
-  }
-  try {
-    const org = await requireOrg(jobberAccountId);
-    const accessToken = await getValidToken(jobberAccountId);
-
-    // 1. Fetch the first job for this org and its custom field instance IDs
-    const [firstJob] = await db.select({ jobberJobId: jobs.jobberJobId })
-      .from(jobs).where(eq(jobs.orgId, org.id)).limit(1);
-
-    if (!firstJob) {
-      res.json({ error: "No jobs found for this org" });
-      return;
-    }
-
-    // 2. Fetch that job's custom fields WITH instance IDs from Jobber
-    const fetchRaw = await fetch(JOBBER_GRAPHQL_URL, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${accessToken}`,
-        "X-JOBBER-GRAPHQL-VERSION": JOBBER_API_VERSION,
-      },
-      body: JSON.stringify({ query: `{
-        job(id: ${JSON.stringify(firstJob.jobberJobId)}) {
-          id
-          customFields {
-            ... on CustomFieldText { id label valueText }
-            ... on CustomFieldNumeric { id label valueNumeric }
-            ... on CustomFieldDropdown { id label valueDropdown }
-            ... on CustomFieldTrueFalse { id label valueTrueFalse }
-            ... on CustomFieldArea { id label }
-            ... on CustomFieldLink { id label }
-          }
-        }
-      }` }),
-    });
-    const fetchJson = await fetchRaw.json();
-
-    res.json({
-      jobberJobId: firstJob.jobberJobId,
-      assetIdentifierFieldId: org.assetIdentifierFieldId,
-      assetIdentifierField: org.assetIdentifierField,
-      jobberResponse: fetchJson,
-    });
-  } catch (err) {
-    res.status(500).json({ error: String(err) });
-  }
-});
 
 // ---------- GET /api/me ----------
 
