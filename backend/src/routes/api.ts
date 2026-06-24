@@ -940,6 +940,181 @@ router.post("/clients/:clientId/interval", async (req: Request, res: Response) =
   }
 });
 
+// ---------- GET /api/clients/:clientId/unassigned-jobs ----------
+
+router.get("/clients/:clientId/unassigned-jobs", async (req: Request, res: Response) => {
+  const clientId = String(req.params.clientId);
+  const { jobberAccountId } = req.query;
+
+  if (!jobberAccountId || typeof jobberAccountId !== "string") {
+    res.status(400).json({ error: "Missing required query param: jobberAccountId" });
+    return;
+  }
+
+  try {
+    const org = await requireOrg(jobberAccountId);
+    const fieldLabel = org.assetIdentifierField;
+    if (!fieldLabel) {
+      res.status(400).json({ error: "No asset identifier field mapped" });
+      return;
+    }
+
+    const [client] = await db
+      .select()
+      .from(clients)
+      .where(and(eq(clients.id, clientId), eq(clients.orgId, org.id)))
+      .limit(1);
+    if (!client) {
+      res.status(404).json({ error: "Client not found" });
+      return;
+    }
+
+    // Jobs for this client where the Asset ID field is absent or null/empty
+    const allJobs = await db
+      .select({
+        id: jobs.id,
+        jobberJobId: jobs.jobberJobId,
+        jobNumber: jobs.jobNumber,
+        title: jobs.title,
+        jobStatus: jobs.jobStatus,
+        completedAt: jobs.completedAt,
+      })
+      .from(jobs)
+      .where(and(eq(jobs.orgId, org.id), eq(jobs.jobberClientId, client.jobberClientId)));
+
+    if (allJobs.length === 0) {
+      res.json({ jobs: [], fieldLabel });
+      return;
+    }
+
+    const jobIds = allJobs.map((j) => j.id);
+    const assetFields = await db
+      .select({ jobId: jobCustomFields.jobId, fieldValue: jobCustomFields.fieldValue })
+      .from(jobCustomFields)
+      .where(and(inArray(jobCustomFields.jobId, jobIds), eq(jobCustomFields.fieldLabel, fieldLabel)));
+
+    const assignedJobIds = new Set(
+      assetFields.filter((f) => f.fieldValue && f.fieldValue.trim() !== "").map((f) => f.jobId)
+    );
+
+    const unassigned = allJobs.filter((j) => !assignedJobIds.has(j.id));
+
+    res.json({ jobs: unassigned, fieldLabel });
+  } catch (err) {
+    console.error("[unassigned-jobs] error:", err);
+    res.status(500).json({ error: String(err) });
+  }
+});
+
+// ---------- POST /api/jobs/:jobId/set-asset-id ----------
+
+router.post("/jobs/:jobId/set-asset-id", async (req: Request, res: Response) => {
+  const jobId = String(req.params.jobId);
+  const { assetIdentifier, jobberAccountId } = req.body as {
+    assetIdentifier?: string;
+    jobberAccountId?: string;
+  };
+
+  if (!jobberAccountId || !assetIdentifier?.trim()) {
+    res.status(400).json({ error: "Missing jobberAccountId or assetIdentifier" });
+    return;
+  }
+
+  const value = assetIdentifier.trim();
+
+  try {
+    const org = await requireOrg(jobberAccountId);
+    const fieldLabel = org.assetIdentifierField;
+    if (!fieldLabel) {
+      res.status(400).json({ error: "No asset identifier field mapped" });
+      return;
+    }
+
+    const [job] = await db
+      .select()
+      .from(jobs)
+      .where(and(eq(jobs.id, jobId), eq(jobs.orgId, org.id)))
+      .limit(1);
+    if (!job) {
+      res.status(404).json({ error: "Job not found" });
+      return;
+    }
+
+    const accessToken = await getValidToken(jobberAccountId);
+
+    // Fetch the custom field instance ID from Jobber
+    const fetchQuery = `{
+      job(id: ${JSON.stringify(job.jobberJobId)}) {
+        customFields {
+          ... on CustomFieldText { id label valueText }
+        }
+      }
+    }`;
+
+    const fetchData = await jobberGql<{
+      job?: { customFields: { id?: string; label?: string; valueText?: string | null }[] };
+    }>(accessToken, fetchQuery);
+
+    const fieldInstance = fetchData.job?.customFields.find((cf) => cf.label === fieldLabel);
+    if (!fieldInstance?.id) {
+      res.status(400).json({
+        error: `Custom field "${fieldLabel}" not found on this job in Jobber. Try syncing first.`,
+      });
+      return;
+    }
+
+    // Push the value to Jobber
+    const updateMutation = `
+      mutation {
+        customFieldUpdate(input: {
+          id: ${JSON.stringify(fieldInstance.id)}
+          valueText: ${JSON.stringify(value)}
+        }) {
+          customField {
+            ... on CustomFieldText { id valueText }
+          }
+          userErrors { message }
+        }
+      }
+    `;
+
+    const updateData = await jobberGql<{
+      customFieldUpdate: {
+        customField: { id: string; valueText: string } | null;
+        userErrors: { message: string }[];
+      };
+    }>(accessToken, updateMutation);
+
+    const userErrors = updateData.customFieldUpdate?.userErrors ?? [];
+    if (userErrors.length > 0) {
+      res.status(400).json({ error: userErrors.map((e) => e.message).join(", ") });
+      return;
+    }
+
+    // Update local DB
+    await db
+      .insert(jobCustomFields)
+      .values({ id: crypto.randomUUID(), jobId, fieldLabel, fieldValue: value })
+      .onConflictDoUpdate({
+        target: [jobCustomFields.jobId, jobCustomFields.fieldLabel],
+        set: { fieldValue: value },
+      });
+
+    // Re-group and recalculate synchronously so the caller can immediately reload assets
+    await groupAssets(jobberAccountId);
+    await calculateDueDates(jobberAccountId);
+
+    res.json({ ok: true, assetIdentifier: value });
+  } catch (err) {
+    console.error("[set-asset-id] error:", err);
+    if (isDisconnectError(err)) {
+      res.status(401).json({ error: "Org disconnected" });
+      return;
+    }
+    res.status(500).json({ error: String(err) });
+  }
+});
+
 // ---------- POST /api/clients/:clientId/portal-link ----------
 
 router.post("/clients/:clientId/portal-link", async (req: Request, res: Response) => {

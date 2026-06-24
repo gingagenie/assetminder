@@ -18,6 +18,15 @@ interface Asset {
   status: "ok" | "amber" | "overdue" | "unscheduled";
 }
 
+interface UnassignedJob {
+  id: string;
+  jobberJobId: string;
+  jobNumber: number | null;
+  title: string | null;
+  jobStatus: string;
+  completedAt: string | null;
+}
+
 interface Client {
   id: string;
   name: string;
@@ -68,11 +77,18 @@ export default function ClientDetail() {
   const [saved, setSaved]                 = useState(false);
   const savedTimer                        = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  // Unassigned jobs state
+  const [unassignedJobs, setUnassignedJobs] = useState<UnassignedJob[]>([]);
+  const [assetIdInputs, setAssetIdInputs] = useState<Record<string, string>>({});
+  const [assigningJob, setAssigningJob] = useState<string | null>(null);
+  const [assignErrors, setAssignErrors] = useState<Record<string, string>>({});
+
   async function loadData() {
     if (!jobberAccountId || !clientId) return;
-    const [clientData, assetData] = await Promise.all([
+    const [clientData, assetData, unassignedData] = await Promise.all([
       fetch(`${API}/api/clients?jobberAccountId=${encodeURIComponent(jobberAccountId)}`).then((r) => r.json()),
       fetch(`${API}/api/assets?jobberAccountId=${encodeURIComponent(jobberAccountId)}`).then((r) => r.json()),
+      fetch(`${API}/api/clients/${clientId}/unassigned-jobs?jobberAccountId=${encodeURIComponent(jobberAccountId)}`).then((r) => r.json()),
     ]);
     const found = (clientData.clients as Client[]).find((c) => c.id === clientId) ?? null;
     setClient(found);
@@ -80,6 +96,38 @@ export default function ClientDetail() {
     setAssets(found
       ? (assetData.assets as Asset[]).filter((a) => a.jobberClientId === found.jobberClientId)
       : []);
+    setUnassignedJobs((unassignedData as { jobs?: UnassignedJob[] }).jobs ?? []);
+  }
+
+  async function handleAssignAssetId(jobId: string) {
+    const value = (assetIdInputs[jobId] ?? "").trim();
+    if (!value) return;
+    setAssigningJob(jobId);
+    setAssignErrors((prev) => { const n = { ...prev }; delete n[jobId]; return n; });
+    try {
+      const res = await fetch(`${API}/api/jobs/${jobId}/set-asset-id`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ assetIdentifier: value, jobberAccountId }),
+      });
+      const data = await res.json() as { ok?: boolean; error?: string };
+      if (!res.ok || !data.ok) {
+        setAssignErrors((prev) => ({ ...prev, [jobId]: data.error ?? "Failed to assign." }));
+        return;
+      }
+      // Remove from unassigned list and refresh assets
+      setUnassignedJobs((prev) => prev.filter((j) => j.id !== jobId));
+      setAssetIdInputs((prev) => { const n = { ...prev }; delete n[jobId]; return n; });
+      // Reload assets so the new/updated asset appears
+      const assetData = await fetch(`${API}/api/assets?jobberAccountId=${encodeURIComponent(jobberAccountId)}`).then((r) => r.json());
+      if (client) {
+        setAssets((assetData as { assets: Asset[] }).assets.filter((a) => a.jobberClientId === client.jobberClientId));
+      }
+    } catch {
+      setAssignErrors((prev) => ({ ...prev, [jobId]: "Network error. Please try again." }));
+    } finally {
+      setAssigningJob(null);
+    }
   }
 
   useEffect(() => {
@@ -252,6 +300,61 @@ export default function ClientDetail() {
             })()}
           </>
         )}
+        {/* Unassigned jobs */}
+        {unassignedJobs.length > 0 && (
+          <div className="mt-10">
+            <div className="flex items-baseline gap-2 mb-4">
+              <h2 className="text-sm font-semibold text-slate-500 uppercase tracking-wide">Jobs without Asset ID</h2>
+              <span className="text-sm text-slate-400">{unassignedJobs.length}</span>
+            </div>
+            <p className="text-xs text-slate-400 mb-4">
+              These jobs have no Asset ID assigned. Type an ID and click Assign to link them to an asset.
+            </p>
+            <div className="bg-white rounded-xl shadow-sm border border-slate-200 divide-y divide-slate-100 overflow-hidden">
+              {unassignedJobs.map((job) => (
+                <div key={job.id} className="px-5 py-4">
+                  <div className="flex items-start justify-between gap-4 flex-wrap">
+                    <div className="min-w-0">
+                      <p className="text-sm font-semibold text-slate-800 truncate">
+                        {job.title ?? `Job #${job.jobNumber ?? "—"}`}
+                      </p>
+                      <p className="text-xs text-slate-400 mt-0.5 capitalize">
+                        {job.jobStatus.toLowerCase().replace(/_/g, " ")}
+                        {job.completedAt && (
+                          <span className="ml-2">· {formatDate(job.completedAt)}</span>
+                        )}
+                      </p>
+                    </div>
+                    <div className="flex items-center gap-2 shrink-0">
+                      <input
+                        type="text"
+                        value={assetIdInputs[job.id] ?? ""}
+                        onChange={(e) =>
+                          setAssetIdInputs((prev) => ({ ...prev, [job.id]: e.target.value }))
+                        }
+                        onKeyDown={(e) => e.key === "Enter" && handleAssignAssetId(job.id)}
+                        placeholder="Asset ID…"
+                        className="h-9 w-32 rounded-lg border border-slate-200 bg-slate-50 px-3 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-slate-300"
+                      />
+                      <button
+                        onClick={() => handleAssignAssetId(job.id)}
+                        disabled={assigningJob === job.id || !(assetIdInputs[job.id] ?? "").trim()}
+                        style={{ backgroundColor: assigningJob === job.id ? undefined : "#1e293b" }}
+                        className="h-9 px-3 rounded-lg text-xs font-semibold text-white bg-slate-700 hover:opacity-90 transition-opacity disabled:opacity-40"
+                      >
+                        {assigningJob === job.id ? "Saving…" : "Assign"}
+                      </button>
+                    </div>
+                  </div>
+                  {assignErrors[job.id] && (
+                    <p className="text-xs text-red-500 mt-2">{assignErrors[job.id]}</p>
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
       </main>
     </div>
   );
