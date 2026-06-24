@@ -1,6 +1,6 @@
 import { eq } from "drizzle-orm";
 import { db } from "../db/client";
-import { jobberOrgs, assets } from "../db/schema";
+import { jobberOrgs, assets, clients } from "../db/schema";
 
 const AMBER_THRESHOLD_DAYS = 30;
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
@@ -46,10 +46,21 @@ export async function calculateDueDates(jobberAccountId: string): Promise<AssetD
     .from(assets)
     .where(eq(assets.orgId, org.id));
 
+  const clientRows = await db
+    .select({ jobberClientId: clients.jobberClientId, serviceIntervalDays: clients.serviceIntervalDays })
+    .from(clients)
+    .where(eq(clients.orgId, org.id));
+  const clientIntervalMap = new Map(
+    clientRows.map((c) => [c.jobberClientId, c.serviceIntervalDays ?? null])
+  );
+
   const results: AssetDueResult[] = [];
 
   for (const asset of orgAssets) {
-    const intervalDays = asset.serviceIntervalDays ?? null;
+    const clientInterval = clientIntervalMap.get(asset.jobberClientId ?? "") ?? null;
+    const intervalDays = asset.intervalOverridden
+      ? (asset.serviceIntervalDays ?? null)
+      : (asset.serviceIntervalDays ?? clientInterval);
     const lastServicedAt = asset.lastServicedAt ? new Date(asset.lastServicedAt) : null;
 
     let nextDueAt: Date | null = null;

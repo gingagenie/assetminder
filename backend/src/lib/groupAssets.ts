@@ -1,7 +1,7 @@
 import crypto from "crypto";
 import { sql, SQL, eq } from "drizzle-orm";
 import { db } from "../db/client";
-import { jobberOrgs, assets, orgSettings } from "../db/schema";
+import { jobberOrgs, assets, orgSettings, clients } from "../db/schema";
 
 interface AssetRow {
   identifier: string;
@@ -73,10 +73,24 @@ export async function groupAssets(jobberAccountId: string): Promise<AssetResult[
 
   if (rows.length === 0) return [];
 
+  // Build a map of jobberClientId → serviceIntervalDays so new assets inherit
+  // the client default without an extra per-asset query.
+  const clientRows = await db
+    .select({ jobberClientId: clients.jobberClientId, serviceIntervalDays: clients.serviceIntervalDays })
+    .from(clients)
+    .where(eq(clients.orgId, orgId));
+  const clientIntervalMap = new Map(
+    clientRows.map((c) => [c.jobberClientId, c.serviceIntervalDays ?? null])
+  );
+
+  const MS_PER_DAY = 24 * 60 * 60 * 1000;
+
   // Upsert each asset
   for (const row of rows) {
     const lastServicedAt = row.last_serviced_at ? new Date(row.last_serviced_at) : null;
     const jobCount = parseInt(String(row.job_count), 10);
+
+    const clientInterval = clientIntervalMap.get(row.jobber_client_id ?? "") ?? null;
 
     await db
       .insert(assets)
@@ -88,6 +102,7 @@ export async function groupAssets(jobberAccountId: string): Promise<AssetResult[
         displayName: row.identifier,
         lastServicedAt,
         jobCount,
+        serviceIntervalDays: clientInterval,
       })
       .onConflictDoUpdate({
         target: [assets.orgId, assets.identifier],
@@ -96,6 +111,8 @@ export async function groupAssets(jobberAccountId: string): Promise<AssetResult[
           displayName: row.identifier,
           lastServicedAt,
           jobCount,
+          // Only update interval if asset hasn't been individually overridden
+          serviceIntervalDays: sql`CASE WHEN ${assets.intervalOverridden} THEN ${assets.serviceIntervalDays} ELSE ${clientInterval} END`,
         },
       });
   }
