@@ -108,19 +108,48 @@ router.get("/debug/jobEdit-schema", async (req: Request, res: Response) => {
     return;
   }
   try {
+    const org = await requireOrg(jobberAccountId);
     const accessToken = await getValidToken(jobberAccountId);
-    const query = `{
-      __schema {
-        mutationType {
-          fields(includeDeprecated: true) {
-            name
-            args { name type { name kind ofType { name kind ofType { name kind } } } }
+
+    // 1. Fetch the first job for this org and its custom field instance IDs
+    const [firstJob] = await db.select({ jobberJobId: jobs.jobberJobId })
+      .from(jobs).where(eq(jobs.orgId, org.id)).limit(1);
+
+    if (!firstJob) {
+      res.json({ error: "No jobs found for this org" });
+      return;
+    }
+
+    // 2. Fetch that job's custom fields WITH instance IDs from Jobber
+    const fetchRaw = await fetch(JOBBER_GRAPHQL_URL, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${accessToken}`,
+        "X-JOBBER-GRAPHQL-VERSION": JOBBER_API_VERSION,
+      },
+      body: JSON.stringify({ query: `{
+        job(id: ${JSON.stringify(firstJob.jobberJobId)}) {
+          id
+          customFields {
+            ... on CustomFieldText { id label valueText }
+            ... on CustomFieldNumeric { id label valueNumeric }
+            ... on CustomFieldDropdown { id label valueDropdown }
+            ... on CustomFieldTrueFalse { id label valueTrueFalse }
+            ... on CustomFieldArea { id label }
+            ... on CustomFieldLink { id label }
           }
         }
-      }
-    }`;
-    const data = await jobberGql<unknown>(accessToken, query);
-    res.json(data);
+      }` }),
+    });
+    const fetchJson = await fetchRaw.json();
+
+    res.json({
+      jobberJobId: firstJob.jobberJobId,
+      assetIdentifierFieldId: org.assetIdentifierFieldId,
+      assetIdentifierField: org.assetIdentifierField,
+      jobberResponse: fetchJson,
+    });
   } catch (err) {
     res.status(500).json({ error: String(err) });
   }
