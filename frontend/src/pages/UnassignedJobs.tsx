@@ -393,6 +393,7 @@ function AddToAssetModal({
         return;
       }
       reset();
+      onClose();
       onSuccess();
     } catch { setError("Failed to add jobs. Please try again."); }
     finally { setSubmitting(false); }
