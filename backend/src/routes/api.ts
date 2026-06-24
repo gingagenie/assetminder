@@ -110,9 +110,13 @@ router.get("/debug/jobEdit-schema", async (req: Request, res: Response) => {
   try {
     const accessToken = await getValidToken(jobberAccountId);
     const query = `{
-      __type(name: "JobEditCustomFieldInput") {
-        name
-        inputFields { name type { name kind ofType { name kind } } }
+      __schema {
+        mutationType {
+          fields(includeDeprecated: true) {
+            name
+            args { name type { name kind ofType { name kind ofType { name kind } } } }
+          }
+        }
       }
     }`;
     const data = await jobberGql<unknown>(accessToken, query);
