@@ -99,6 +99,29 @@ function isDisconnectError(err: unknown): boolean {
   return String(err).includes("disconnected this app");
 }
 
+// ---------- GET /api/debug/jobEdit-schema (temp) ----------
+
+router.get("/debug/jobEdit-schema", async (req: Request, res: Response) => {
+  const { jobberAccountId } = req.query;
+  if (!jobberAccountId || typeof jobberAccountId !== "string") {
+    res.status(400).json({ error: "Missing jobberAccountId" });
+    return;
+  }
+  try {
+    const accessToken = await getValidToken(jobberAccountId);
+    const query = `{
+      __type(name: "JobEditCustomFieldInput") {
+        name
+        inputFields { name type { name kind ofType { name kind } } }
+      }
+    }`;
+    const data = await jobberGql<unknown>(accessToken, query);
+    res.json(data);
+  } catch (err) {
+    res.status(500).json({ error: String(err) });
+  }
+});
+
 // ---------- GET /api/me ----------
 
 router.get("/me", async (req: Request, res: Response) => {
