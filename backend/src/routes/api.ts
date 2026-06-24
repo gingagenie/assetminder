@@ -57,7 +57,9 @@ function computeCustomFieldInstanceId(jobberJobId: string, fieldConfigId: string
   return Buffer.from(`${jobNumericId}::${configNumericId}`).toString("base64");
 }
 
-// Writes a single text custom-field value back to Jobber via customFieldUpdate.
+// Writes a single text custom-field value back to Jobber via jobEdit.
+// Uses the computed instance ID (base64("{jobNumericId}::{configNumericId}")) —
+// jobEdit rejects the config GID but accepts the instance ID in the same `id` field.
 // Throws on transport errors, GraphQL errors, or userErrors.
 async function writeAssetIdToJobber(
   accessToken: string,
@@ -69,20 +71,22 @@ async function writeAssetIdToJobber(
 
   const mutation = `
     mutation {
-      customFieldUpdate(input: {
-        id: ${JSON.stringify(instanceId)}
-        valueText: ${JSON.stringify(value)}
-      }) {
-        customField {
-          ... on CustomFieldText { id valueText }
+      jobEdit(
+        jobId: ${JSON.stringify(jobberJobId)}
+        input: {
+          customFields: [
+            { id: ${JSON.stringify(instanceId)}, valueText: ${JSON.stringify(value)} }
+          ]
         }
-        userErrors { message }
+      ) {
+        job { id }
+        userErrors { message path }
       }
     }
   `;
 
-  const data = await jobberGql<{ customFieldUpdate: { userErrors: { message: string }[] } }>(accessToken, mutation);
-  const errs = data.customFieldUpdate?.userErrors ?? [];
+  const data = await jobberGql<{ jobEdit: { userErrors: { message: string }[] } }>(accessToken, mutation);
+  const errs = data.jobEdit?.userErrors ?? [];
   if (errs.length) throw new Error(errs.map((e) => e.message).join(", "));
 }
 
