@@ -1,7 +1,7 @@
 import { Router, Request, Response, NextFunction } from "express";
 import { db } from "../db/client";
-import { jobberOrgs } from "../db/schema";
-import { eq, sql } from "drizzle-orm";
+import { jobberOrgs, loginEvents } from "../db/schema";
+import { eq, sql, desc } from "drizzle-orm";
 import { deleteOrgData } from "../lib/deleteOrg";
 
 const router = Router();
@@ -104,6 +104,17 @@ router.post("/orgs/:id/set-expired", async (req: Request, res: Response) => {
     .where(eq(jobberOrgs.id, id));
 
   res.json({ ok: true });
+});
+
+// ---------- GET /api/admin/login-events ----------
+
+router.get("/login-events", async (_req: Request, res: Response) => {
+  const events = await db
+    .select()
+    .from(loginEvents)
+    .orderBy(desc(loginEvents.createdAt))
+    .limit(20);
+  res.json({ events });
 });
 
 // ---------- DELETE /api/admin/orgs/:id ----------

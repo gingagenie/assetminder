@@ -1,6 +1,6 @@
 import { Router, Request, Response } from "express";
 import { db } from "../db/client";
-import { jobberOrgs } from "../db/schema";
+import { jobberOrgs, loginEvents } from "../db/schema";
 import { eq } from "drizzle-orm";
 import crypto from "crypto";
 
@@ -251,6 +251,12 @@ router.get("/callback", async (req: Request, res: Response) => {
       subscriptionStatus: "trial",
     });
   }
+
+  await db.insert(loginEvents).values({
+    id: crypto.randomUUID(),
+    jobberAccountId,
+    eventType: "oauth_login",
+  });
 
   // Auto-detect or create a custom field for asset identification if not already configured
   const needsFieldSetup = existing.length === 0 || !existing[0].assetIdentifierField;

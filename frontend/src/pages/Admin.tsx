@@ -2,6 +2,13 @@ import { useEffect, useState } from "react";
 import { useLocation } from "react-router-dom";
 import { API } from "@/lib/api";
 
+interface LoginEvent {
+  id: string;
+  jobberAccountId: string;
+  eventType: string;
+  createdAt: string;
+}
+
 interface OrgRow {
   id: string;
   jobberAccountId: string;
@@ -38,6 +45,7 @@ export default function Admin() {
 
   const [stats, setStats] = useState<Stats | null>(null);
   const [orgs, setOrgs] = useState<OrgRow[]>([]);
+  const [loginHistory, setLoginHistory] = useState<LoginEvent[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [actionPending, setActionPending] = useState<string | null>(null); // orgId of in-flight action
@@ -46,12 +54,19 @@ export default function Admin() {
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch(`${API}/api/admin/dashboard?key=${encodeURIComponent(adminKey)}`);
-      if (res.status === 401) { setError("Invalid admin key."); return; }
-      if (!res.ok) { setError("Failed to load admin data."); return; }
-      const data = (await res.json()) as { stats: Stats; orgs: OrgRow[] };
+      const [dashRes, eventsRes] = await Promise.all([
+        fetch(`${API}/api/admin/dashboard?key=${encodeURIComponent(adminKey)}`),
+        fetch(`${API}/api/admin/login-events?key=${encodeURIComponent(adminKey)}`),
+      ]);
+      if (dashRes.status === 401) { setError("Invalid admin key."); return; }
+      if (!dashRes.ok) { setError("Failed to load admin data."); return; }
+      const data = (await dashRes.json()) as { stats: Stats; orgs: OrgRow[] };
       setStats(data.stats);
       setOrgs(data.orgs);
+      if (eventsRes.ok) {
+        const eventsData = (await eventsRes.json()) as { events: LoginEvent[] };
+        setLoginHistory(eventsData.events);
+      }
     } catch {
       setError("Network error.");
     } finally {
@@ -240,6 +255,46 @@ export default function Admin() {
               {orgs.length === 0 && (
                 <tr>
                   <td colSpan={7} className="px-5 py-10 text-center text-slate-600 text-sm">No orgs yet.</td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+
+        {/* Login History */}
+        <div className="bg-slate-900 rounded-xl border border-slate-800 overflow-hidden">
+          <div className="px-5 py-3 border-b border-slate-800">
+            <h2 className="text-sm font-semibold text-slate-300">Login History</h2>
+            <p className="text-xs text-slate-500">Last 20 OAuth authentications</p>
+          </div>
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b border-slate-800 text-xs text-slate-500 uppercase tracking-wide">
+                <th className="text-left px-5 py-3 font-medium">Jobber Account ID</th>
+                <th className="text-left px-5 py-3 font-medium">Event</th>
+                <th className="text-left px-5 py-3 font-medium">Time</th>
+              </tr>
+            </thead>
+            <tbody>
+              {loginHistory.map((ev, i) => (
+                <tr
+                  key={ev.id}
+                  className={`border-b border-slate-800/50 ${i % 2 === 0 ? "" : "bg-slate-900/50"}`}
+                >
+                  <td className="px-5 py-3 font-mono text-xs text-slate-300">{ev.jobberAccountId}</td>
+                  <td className="px-5 py-3">
+                    <span className="inline-block text-xs font-semibold px-2 py-0.5 rounded-full bg-indigo-900/50 text-indigo-300">
+                      {ev.eventType}
+                    </span>
+                  </td>
+                  <td className="px-5 py-3 text-slate-400 text-xs">
+                    {new Date(ev.createdAt).toLocaleString()}
+                  </td>
+                </tr>
+              ))}
+              {loginHistory.length === 0 && (
+                <tr>
+                  <td colSpan={3} className="px-5 py-10 text-center text-slate-600 text-sm">No login events yet.</td>
                 </tr>
               )}
             </tbody>

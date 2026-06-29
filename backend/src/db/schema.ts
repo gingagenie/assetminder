@@ -95,8 +95,16 @@ export const excludedPhotos = pgTable("excluded_photos", {
   unique("excluded_photos_org_job_filename_unique").on(t.orgId, t.jobberJobId, t.filename),
 ]);
 
+export const loginEvents = pgTable("login_events", {
+  id: text("id").primaryKey(),
+  jobberAccountId: text("jobber_account_id").notNull(),
+  eventType: text("event_type").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
 export type JobberOrg = typeof jobberOrgs.$inferSelect;
 export type NewJobberOrg = typeof jobberOrgs.$inferInsert;
 export type Client = typeof clients.$inferSelect;
 export type Job = typeof jobs.$inferSelect;
 export type JobCustomField = typeof jobCustomFields.$inferSelect;
+export type LoginEvent = typeof loginEvents.$inferSelect;
