@@ -5,6 +5,7 @@ import { API } from "@/lib/api";
 interface LoginEvent {
   id: string;
   jobberAccountId: string;
+  orgName: string | null;
   eventType: string;
   createdAt: string;
 }
@@ -270,6 +271,7 @@ export default function Admin() {
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-slate-800 text-xs text-slate-500 uppercase tracking-wide">
+                <th className="text-left px-5 py-3 font-medium">Org Name</th>
                 <th className="text-left px-5 py-3 font-medium">Jobber Account ID</th>
                 <th className="text-left px-5 py-3 font-medium">Event</th>
                 <th className="text-left px-5 py-3 font-medium">Time</th>
@@ -281,7 +283,8 @@ export default function Admin() {
                   key={ev.id}
                   className={`border-b border-slate-800/50 ${i % 2 === 0 ? "" : "bg-slate-900/50"}`}
                 >
-                  <td className="px-5 py-3 font-mono text-xs text-slate-300">{ev.jobberAccountId}</td>
+                  <td className="px-5 py-3 text-sm text-slate-200">{ev.orgName ?? <span className="text-slate-600">—</span>}</td>
+                  <td className="px-5 py-3 font-mono text-xs text-slate-400">{ev.jobberAccountId}</td>
                   <td className="px-5 py-3">
                     <span className="inline-block text-xs font-semibold px-2 py-0.5 rounded-full bg-indigo-900/50 text-indigo-300">
                       {ev.eventType}
@@ -294,7 +297,7 @@ export default function Admin() {
               ))}
               {loginHistory.length === 0 && (
                 <tr>
-                  <td colSpan={3} className="px-5 py-10 text-center text-slate-600 text-sm">No login events yet.</td>
+                  <td colSpan={4} className="px-5 py-10 text-center text-slate-600 text-sm">No login events yet.</td>
                 </tr>
               )}
             </tbody>

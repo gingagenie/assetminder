@@ -110,8 +110,15 @@ router.post("/orgs/:id/set-expired", async (req: Request, res: Response) => {
 
 router.get("/login-events", async (_req: Request, res: Response) => {
   const events = await db
-    .select()
+    .select({
+      id: loginEvents.id,
+      jobberAccountId: loginEvents.jobberAccountId,
+      orgName: jobberOrgs.name,
+      eventType: loginEvents.eventType,
+      createdAt: loginEvents.createdAt,
+    })
     .from(loginEvents)
+    .leftJoin(jobberOrgs, eq(jobberOrgs.jobberAccountId, loginEvents.jobberAccountId))
     .orderBy(desc(loginEvents.createdAt))
     .limit(20);
   res.json({ events });

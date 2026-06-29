@@ -6,6 +6,7 @@ export const jobberOrgs = pgTable("jobber_orgs", {
   accessToken: text("access_token").notNull(),
   refreshToken: text("refresh_token").notNull(),
   expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+  name: text("name"),
   assetIdentifierField: text("asset_identifier_field"),
   assetIdentifierFieldId: text("asset_identifier_field_id"),
   trialStartedAt: timestamp("trial_started_at", { withTimezone: true }),
