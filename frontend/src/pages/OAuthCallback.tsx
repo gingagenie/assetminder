@@ -1,6 +1,7 @@
 import { useEffect, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { API } from "@/lib/api";
+import { setCachedPinSet } from "@/lib/pinStatus";
 
 export default function OAuthCallback() {
   const navigate = useNavigate();
@@ -22,6 +23,7 @@ export default function OAuthCallback() {
           : "";
         const params = new URLSearchParams(hashSearch);
         const jobberAccountId = params.get("jobberAccountId");
+        const isReset = params.get("reset") === "1";
 
         if (!jobberAccountId) {
           navigate("/?error=missing_account_id");
@@ -29,33 +31,42 @@ export default function OAuthCallback() {
         }
 
         localStorage.setItem("jobberAccountId", jobberAccountId);
+        // A fresh authentication supersedes any locked session.
+        localStorage.removeItem("lockedAccountId");
+
+        // Work out where the user should ultimately land.
+        let destination = "/dashboard";
 
         // Check subscription status — expired accounts go straight to dashboard
         // which handles the SubscriptionWall. Never send them to onboarding.
         const billingRes = await fetch(`${API}/api/billing/status?jobberAccountId=${encodeURIComponent(jobberAccountId)}`);
+        let trialExpired = false;
         if (billingRes.ok) {
           const billing = (await billingRes.json()) as { subscriptionStatus: string; trialExpired: boolean };
-          if (billing.trialExpired || billing.subscriptionStatus === "expired") {
-            navigate("/dashboard");
-            return;
+          trialExpired = billing.trialExpired || billing.subscriptionStatus === "expired";
+        }
+
+        if (!trialExpired) {
+          // Check whether field mapping is already configured
+          const res = await fetch(
+            `${API}/api/orgs/field-mapping?jobberAccountId=${encodeURIComponent(jobberAccountId)}`
+          );
+          if (res.ok) {
+            const data = (await res.json()) as { assetIdentifierField: string | null };
+            destination = data.assetIdentifierField ? "/dashboard" : "/onboarding";
           }
+          // non-ok (402/etc) falls through to /dashboard which handles the wall
         }
 
-        // Check whether field mapping is already configured
-        const res = await fetch(
-          `${API}/api/orgs/field-mapping?jobberAccountId=${encodeURIComponent(jobberAccountId)}`
-        );
-        if (!res.ok) {
-          // 402 or other error — send to dashboard which handles subscription wall and auth checks
-          navigate("/dashboard");
-          return;
-        }
-        const data = (await res.json()) as { assetIdentifierField: string | null };
+        // First connect (no PIN yet) or a Forgot-PIN reset must set a PIN first.
+        const pinRes = await fetch(`${API}/api/pin/status?jobberAccountId=${encodeURIComponent(jobberAccountId)}`);
+        const pinSet = pinRes.ok ? ((await pinRes.json()) as { pinSet: boolean }).pinSet : true;
+        setCachedPinSet(jobberAccountId, pinSet);
 
-        if (data.assetIdentifierField) {
-          navigate("/dashboard");
+        if (isReset || !pinSet) {
+          navigate("/set-pin", { replace: true, state: { next: destination } });
         } else {
-          navigate("/onboarding");
+          navigate(destination);
         }
       } catch {
         navigate("/?error=callback_failed");

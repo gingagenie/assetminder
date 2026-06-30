@@ -8,6 +8,7 @@ import apiRouter from "./routes/api";
 import webhookRouter from "./routes/webhooks";
 import billingRouter from "./routes/billing";
 import adminRouter from "./routes/admin";
+import pinRouter from "./routes/pin";
 import { db } from "./db/client";
 import { jobberOrgs } from "./db/schema";
 
@@ -38,6 +39,16 @@ const syncLimiter = rateLimit({
 });
 app.use("/api/sync", syncLimiter);
 
+// PIN endpoints are rate-limited per IP (DB-backed per-account lockout layers on top)
+const pinLimiter = rateLimit({
+  windowMs: 60 * 1000, // 1 minute
+  limit: 10,           // max 10 PIN requests per minute per IP
+  standardHeaders: "draft-7",
+  legacyHeaders: false,
+  message: { error: "Too many PIN attempts. Please wait a moment." },
+});
+app.use("/api/pin", pinLimiter);
+
 app.get("/health", (_req, res) => {
   res.json({ status: "ok" });
 });
@@ -46,6 +57,7 @@ app.use("/auth/jobber", authRouter);
 app.use("/api/webhooks", webhookRouter); // must be before /api to avoid express.json() conflict
 app.use("/api/billing", billingRouter);  // not behind subscription check
 app.use("/api/admin", adminRouter);      // key-protected, not behind subscription check
+app.use("/api/pin", pinRouter);          // not behind subscription check — unlock must work pre-paywall
 
 // Subscription middleware — checks trial/active/expired for all /api/* routes
 async function requireSubscription(req: Request, res: Response, next: NextFunction) {
