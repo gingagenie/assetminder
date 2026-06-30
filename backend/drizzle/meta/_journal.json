@@ -78,6 +78,13 @@
       "when": 1777979299718,
       "tag": "0010_loving_tyger_tiger",
       "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1782862400373,
+      "tag": "0011_daily_lorna_dane",
+      "breakpoints": true
     }
   ]
 }

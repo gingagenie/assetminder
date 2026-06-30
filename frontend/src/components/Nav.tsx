@@ -66,8 +66,11 @@ export function Nav({ left, right: _right, onSyncComplete }: NavProps) {
   }
 
   function handleLogout() {
+    // Lock, don't forget: remember the account so the PIN screen knows whose
+    // PIN to check, but drop the active session.
+    if (jobberAccountId) localStorage.setItem("lockedAccountId", jobberAccountId);
     localStorage.removeItem("jobberAccountId");
-    navigate("/connect");
+    navigate("/lock");
   }
 
   async function handleSync() {
