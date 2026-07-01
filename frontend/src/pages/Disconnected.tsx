@@ -1,7 +1,12 @@
+import { useEffect } from "react";
 import { Link } from "react-router-dom";
 import { API } from "@/lib/api";
 
 export default function Disconnected() {
+  useEffect(() => {
+    localStorage.removeItem("jobberAccountId");
+  }, []);
+
   return (
     <div style={{ fontFamily: "Inter, sans-serif", backgroundColor: "#0f172a" }} className="min-h-screen flex flex-col">
 
