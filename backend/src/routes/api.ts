@@ -985,12 +985,23 @@ router.get("/assets", async (req: Request, res: Response) => {
   try {
     const org = await requireOrg(jobberAccountId);
 
+    // clientId may be the internal UUID — resolve to jobberClientId via the clients table
+    let jobberClientIdFilter: string | null = null;
+    if (clientId && typeof clientId === "string") {
+      const [clientRow] = await db
+        .select({ jobberClientId: clients.jobberClientId })
+        .from(clients)
+        .where(and(eq(clients.id, clientId), eq(clients.orgId, org.id)))
+        .limit(1);
+      jobberClientIdFilter = clientRow?.jobberClientId ?? clientId;
+    }
+
     const rows = await db
       .select()
       .from(assets)
       .where(
-        clientId && typeof clientId === "string"
-          ? and(eq(assets.orgId, org.id), eq(assets.jobberClientId, clientId))
+        jobberClientIdFilter
+          ? and(eq(assets.orgId, org.id), eq(assets.jobberClientId, jobberClientIdFilter))
           : eq(assets.orgId, org.id)
       );
 
