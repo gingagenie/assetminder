@@ -1,6 +1,6 @@
 import { Router, Request, Response, NextFunction } from "express";
 import { db } from "../db/client";
-import { jobberOrgs, loginEvents } from "../db/schema";
+import { jobberOrgs, loginEvents, clients } from "../db/schema";
 import { eq, sql, desc } from "drizzle-orm";
 import { deleteOrgData } from "../lib/deleteOrg";
 
@@ -113,7 +113,10 @@ router.get("/login-events", async (_req: Request, res: Response) => {
     .select({
       id: loginEvents.id,
       jobberAccountId: loginEvents.jobberAccountId,
-      orgName: jobberOrgs.name,
+      orgName: sql<string | null>`COALESCE(
+        ${jobberOrgs.name},
+        (SELECT COALESCE(${clients.companyName}, ${clients.name}) FROM clients WHERE clients.org_id = ${jobberOrgs.id} ORDER BY clients.created_at LIMIT 1)
+      )`,
       eventType: loginEvents.eventType,
       createdAt: loginEvents.createdAt,
     })

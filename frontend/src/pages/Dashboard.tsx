@@ -182,7 +182,7 @@ export default function Dashboard() {
       await fetch(`${API}/api/disconnect`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ jobberAccountId }) });
     } catch { /* continue */ } finally {
       localStorage.removeItem("jobberAccountId");
-      navigate("/");
+      navigate("/disconnected");
     }
   }
 

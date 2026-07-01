@@ -16,6 +16,7 @@ import Admin from "@/pages/Admin";
 import UnassignedJobs from "@/pages/UnassignedJobs";
 import Lock from "@/pages/Lock";
 import SetPin from "@/pages/SetPin";
+import Disconnected from "@/pages/Disconnected";
 import { SubscriptionWall } from "@/components/SubscriptionWall";
 
 function RequireAuth({ children }: { children: React.ReactNode }) {
@@ -81,6 +82,7 @@ export default function App() {
           <Route path="/help" element={<Help />} />
           <Route path="/admin" element={<Admin />} />
           <Route path="/unassigned-jobs" element={<RequireAuth><UnassignedJobs /></RequireAuth>} />
+          <Route path="/disconnected" element={<Disconnected />} />
         </Routes>
       </HashRouter>
       {subscriptionRequired && <SubscriptionWall />}
