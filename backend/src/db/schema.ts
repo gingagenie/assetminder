@@ -80,6 +80,8 @@ export const assets = pgTable("assets", {
   serviceIntervalDays: integer("service_interval_days"),
   nextDueAt: timestamp("next_due_at", { withTimezone: true }),
   intervalOverridden: boolean("interval_overridden").notNull().default(false),
+  flaggedSimilarTo: text("flagged_similar_to"),
+  flagDismissed: boolean("flag_dismissed").notNull().default(false),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 }, (t) => [
   unique("assets_org_identifier_unique").on(t.orgId, t.identifier),

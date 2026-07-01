@@ -1,7 +1,30 @@
 import crypto from "crypto";
-import { sql, SQL, eq } from "drizzle-orm";
+import { sql, SQL, eq, and } from "drizzle-orm";
 import { db } from "../db/client";
 import { jobberOrgs, assets, orgSettings, clients } from "../db/schema";
+
+// ---------- Fuzzy name similarity ----------
+
+function levenshtein(a: string, b: string): number {
+  const m = a.length, n = b.length;
+  const dp: number[] = Array.from({ length: n + 1 }, (_, i) => i);
+  for (let i = 1; i <= m; i++) {
+    let prev = dp[0];
+    dp[0] = i;
+    for (let j = 1; j <= n; j++) {
+      const tmp = dp[j];
+      dp[j] = a[i - 1] === b[j - 1] ? prev : 1 + Math.min(prev, dp[j], dp[j - 1]);
+      prev = tmp;
+    }
+  }
+  return dp[n];
+}
+
+function nameSimilarity(a: string, b: string): number {
+  const maxLen = Math.max(a.length, b.length);
+  if (maxLen === 0) return 1;
+  return 1 - levenshtein(a.toLowerCase(), b.toLowerCase()) / maxLen;
+}
 
 interface AssetRow {
   identifier: string;
@@ -85,12 +108,28 @@ export async function groupAssets(jobberAccountId: string): Promise<AssetResult[
 
   const MS_PER_DAY = 24 * 60 * 60 * 1000;
 
+  // Snapshot existing assets BEFORE the upsert loop so we can detect new ones
+  // and run a fuzzy name match against sibling assets for the same client.
+  const existingAssets = await db
+    .select({ id: assets.id, identifier: assets.identifier, jobberClientId: assets.jobberClientId })
+    .from(assets)
+    .where(eq(assets.orgId, orgId));
+  const existingIdentifiers = new Set(existingAssets.map((a) => a.identifier));
+  // Group by client for efficient lookup
+  const assetsByClient = new Map<string | null, typeof existingAssets>();
+  for (const a of existingAssets) {
+    const key = a.jobberClientId;
+    if (!assetsByClient.has(key)) assetsByClient.set(key, []);
+    assetsByClient.get(key)!.push(a);
+  }
+
   // Upsert each asset
   for (const row of rows) {
     const lastServicedAt = row.last_serviced_at ? new Date(row.last_serviced_at) : null;
     const jobCount = parseInt(String(row.job_count), 10);
 
     const clientInterval = clientIntervalMap.get(row.jobber_client_id ?? "") ?? null;
+    const isNew = !existingIdentifiers.has(row.identifier);
 
     await db
       .insert(assets)
@@ -115,6 +154,27 @@ export async function groupAssets(jobberAccountId: string): Promise<AssetResult[
           serviceIntervalDays: sql`CASE WHEN ${assets.intervalOverridden} THEN ${assets.serviceIntervalDays} ELSE ${clientInterval} END`,
         },
       });
+
+    // For newly-detected assets, check for similar-sounding sibling assets.
+    if (isNew) {
+      const siblings = assetsByClient.get(row.jobber_client_id ?? null) ?? [];
+      let bestId: string | null = null;
+      let bestScore = 0;
+      for (const sibling of siblings) {
+        const score = nameSimilarity(row.identifier, sibling.identifier);
+        if (score >= 0.8 && score > bestScore) {
+          bestId = sibling.id;
+          bestScore = score;
+        }
+      }
+      if (bestId) {
+        await db
+          .update(assets)
+          .set({ flaggedSimilarTo: bestId })
+          .where(and(eq(assets.orgId, orgId), eq(assets.identifier, row.identifier)));
+        console.log(`[groupAssets] flagged new asset "${row.identifier}" as similar to asset ${bestId} (score ${bestScore.toFixed(2)})`);
+      }
+    }
   }
 
   return rows.map((row) => ({
