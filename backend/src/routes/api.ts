@@ -546,13 +546,46 @@ router.delete("/assets/:assetId", async (req: Request, res: Response) => {
   if (!jobberAccountId) { res.status(400).json({ error: "Missing jobberAccountId" }); return; }
 
   try {
-    const [org] = await db.select({ id: jobberOrgs.id, assetIdentifierField: jobberOrgs.assetIdentifierField })
+    const [org] = await db
+      .select({ id: jobberOrgs.id, assetIdentifierField: jobberOrgs.assetIdentifierField, assetIdentifierFieldId: jobberOrgs.assetIdentifierFieldId })
       .from(jobberOrgs).where(eq(jobberOrgs.jobberAccountId, jobberAccountId)).limit(1);
     if (!org) { res.status(404).json({ error: "Org not found" }); return; }
 
     const [asset] = await db.select({ id: assets.id, identifier: assets.identifier })
       .from(assets).where(and(eq(assets.id, assetId), eq(assets.orgId, org.id))).limit(1);
     if (!asset) { res.status(404).json({ error: "Asset not found" }); return; }
+
+    // Clear the custom field in Jobber BEFORE removing local records so the
+    // next sync doesn't see a populated field value and recreate the asset.
+    if (org.assetIdentifierField && org.assetIdentifierFieldId) {
+      const linkedJobs = await db
+        .select({ jobberJobId: jobs.jobberJobId })
+        .from(jobCustomFields)
+        .innerJoin(jobs, eq(jobCustomFields.jobId, jobs.id))
+        .where(
+          and(
+            eq(jobs.orgId, org.id),
+            eq(jobCustomFields.fieldLabel, org.assetIdentifierField),
+            eq(jobCustomFields.fieldValue, asset.identifier)
+          )
+        );
+
+      if (linkedJobs.length > 0) {
+        const token = await getValidToken(jobberAccountId);
+        try {
+          for (const job of linkedJobs) {
+            await writeAssetIdToJobber(token, job.jobberJobId, org.assetIdentifierFieldId, "");
+          }
+          console.log(`[assets/delete] cleared Jobber field on ${linkedJobs.length} job(s) for asset "${asset.identifier}"`);
+        } catch (err) {
+          if (isJobberPermissionError(err)) {
+            console.warn("[assets/delete] Jobber field clear skipped (missing write_jobs scope):", String(err));
+          } else {
+            throw err;
+          }
+        }
+      }
+    }
 
     // Unlink all jobs from this asset by deleting their custom field entries
     if (org.assetIdentifierField) {
