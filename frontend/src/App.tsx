@@ -17,6 +17,7 @@ import UnassignedJobs from "@/pages/UnassignedJobs";
 import Lock from "@/pages/Lock";
 import SetPin from "@/pages/SetPin";
 import Disconnected from "@/pages/Disconnected";
+import ClientAssets from "@/pages/ClientAssets";
 import { SubscriptionWall } from "@/components/SubscriptionWall";
 
 function RequireAuth({ children }: { children: React.ReactNode }) {
@@ -79,6 +80,7 @@ export default function App() {
           <Route path="/onboarding" element={<RequireAuth><Onboarding /></RequireAuth>} />
           <Route path="/dashboard" element={<RequireAuth><Dashboard /></RequireAuth>} />
           <Route path="/clients/:clientId" element={<RequireAuth><ClientDetail /></RequireAuth>} />
+          <Route path="/clients/:clientId/assets" element={<RequireAuth><ClientAssets /></RequireAuth>} />
           <Route path="/assets/:assetId" element={<RequireAuth><AssetDetail /></RequireAuth>} />
           <Route path="/portal/:token" element={<Portal />} />
           <Route path="/terms" element={<Terms />} />

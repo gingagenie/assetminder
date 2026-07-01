@@ -581,11 +581,40 @@ router.delete("/assets/:assetId", async (req: Request, res: Response) => {
   }
 });
 
+// ---------- POST /api/assets/:assetId/rename ----------
+
+router.post("/assets/:assetId/rename", async (req: Request, res: Response) => {
+  const assetId = String(req.params.assetId);
+  const { jobberAccountId, displayName } = req.body as { jobberAccountId?: string; displayName?: string };
+
+  if (!jobberAccountId) { res.status(400).json({ error: "Missing jobberAccountId" }); return; }
+  if (!displayName?.trim()) { res.status(400).json({ error: "displayName is required" }); return; }
+
+  try {
+    const [org] = await db.select({ id: jobberOrgs.id })
+      .from(jobberOrgs).where(eq(jobberOrgs.jobberAccountId, jobberAccountId)).limit(1);
+    if (!org) { res.status(404).json({ error: "Org not found" }); return; }
+
+    const [updated] = await db
+      .update(assets)
+      .set({ displayName: displayName.trim() })
+      .where(and(eq(assets.id, assetId), eq(assets.orgId, org.id)))
+      .returning({ id: assets.id, displayName: assets.displayName });
+
+    if (!updated) { res.status(404).json({ error: "Asset not found" }); return; }
+
+    res.json({ ok: true, displayName: updated.displayName });
+  } catch (err) {
+    console.error("[assets/rename] error:", err);
+    res.status(500).json({ error: String(err) });
+  }
+});
+
 // ---------- POST /api/assets/:assetId/merge ----------
 
 router.post("/assets/:assetId/merge", async (req: Request, res: Response) => {
   const assetId = String(req.params.assetId);
-  const { jobberAccountId } = req.body as { jobberAccountId?: string };
+  const { jobberAccountId, targetAssetId } = req.body as { jobberAccountId?: string; targetAssetId?: string };
 
   if (!jobberAccountId) { res.status(400).json({ error: "Missing jobberAccountId" }); return; }
 
@@ -597,10 +626,12 @@ router.post("/assets/:assetId/merge", async (req: Request, res: Response) => {
     const [asset] = await db.select()
       .from(assets).where(and(eq(assets.id, assetId), eq(assets.orgId, org.id))).limit(1);
     if (!asset) { res.status(404).json({ error: "Asset not found" }); return; }
-    if (!asset.flaggedSimilarTo) { res.status(400).json({ error: "No similar asset to merge into" }); return; }
+    const resolvedTargetId = targetAssetId ?? asset.flaggedSimilarTo;
+    if (!resolvedTargetId) { res.status(400).json({ error: "No target asset specified" }); return; }
+    if (resolvedTargetId === assetId) { res.status(400).json({ error: "Cannot merge an asset into itself" }); return; }
 
     const [target] = await db.select()
-      .from(assets).where(and(eq(assets.id, asset.flaggedSimilarTo), eq(assets.orgId, org.id))).limit(1);
+      .from(assets).where(and(eq(assets.id, resolvedTargetId), eq(assets.orgId, org.id))).limit(1);
     if (!target) { res.status(404).json({ error: "Target asset not found" }); return; }
 
     if (!org.assetIdentifierField) { res.status(400).json({ error: "No asset identifier field mapped" }); return; }

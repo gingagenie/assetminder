@@ -375,11 +375,21 @@ export default function Dashboard() {
                         <p className="text-base font-semibold text-slate-900 truncate">
                           {client.companyName ?? client.name}
                         </p>
-                        <p className="text-[11px] text-slate-500">
-                          {(client.assetCount ?? 0) === 0
-                            ? "0 assets"
-                            : `${client.assetCount} asset${client.assetCount !== 1 ? "s" : ""}`}
-                        </p>
+                        {(client.assetCount ?? 0) === 0 ? (
+                          <p className="text-[11px] text-slate-500">0 assets</p>
+                        ) : (
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              navigate(`/clients/${client.id}/assets`, {
+                                state: { clientName: client.companyName ?? client.name },
+                              });
+                            }}
+                            className="text-[11px] text-slate-500 hover:text-slate-800 hover:underline transition-colors text-left"
+                          >
+                            {client.assetCount} asset{client.assetCount !== 1 ? "s" : ""}
+                          </button>
+                        )}
                         <button
                           disabled={generatingFor === client.id}
                           onClick={(e) => { e.stopPropagation(); handleSharePortal(e, client.id); }}
