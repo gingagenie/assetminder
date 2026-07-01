@@ -43,9 +43,13 @@ function RequireAuth({ children }: { children: React.ReactNode }) {
   // Never gate the set-pin page itself — that would loop and prevent it rendering.
   if (location.pathname === "/set-pin") return <>{children}</>;
 
-  if (pinSet === null) return null; // still checking
-  // Connected but no PIN yet (existing users) — force PIN setup before proceeding.
-  if (!pinSet) return <Navigate to="/set-pin" replace state={{ next: location.pathname }} />;
+  // Always read the live cache so a just-set PIN (setCachedPinSet called in SetPin
+  // before navigate()) is visible in this render cycle, not just the next one.
+  const livePin = getCachedPinSet(id);
+  const effectivePin = livePin !== null ? livePin : pinSet;
+
+  if (effectivePin === null) return null; // still waiting for API
+  if (!effectivePin) return <Navigate to="/set-pin" replace state={{ next: location.pathname }} />;
   return <>{children}</>;
 }
 
