@@ -590,20 +590,68 @@ router.post("/assets/:assetId/rename", async (req: Request, res: Response) => {
   if (!jobberAccountId) { res.status(400).json({ error: "Missing jobberAccountId" }); return; }
   if (!displayName?.trim()) { res.status(400).json({ error: "displayName is required" }); return; }
 
+  const newName = displayName.trim();
+
   try {
-    const [org] = await db.select({ id: jobberOrgs.id })
+    const [org] = await db
+      .select({ id: jobberOrgs.id, assetIdentifierField: jobberOrgs.assetIdentifierField, assetIdentifierFieldId: jobberOrgs.assetIdentifierFieldId })
       .from(jobberOrgs).where(eq(jobberOrgs.jobberAccountId, jobberAccountId)).limit(1);
     if (!org) { res.status(404).json({ error: "Org not found" }); return; }
 
-    const [updated] = await db
+    const [asset] = await db
+      .select({ identifier: assets.identifier })
+      .from(assets).where(and(eq(assets.id, assetId), eq(assets.orgId, org.id))).limit(1);
+    if (!asset) { res.status(404).json({ error: "Asset not found" }); return; }
+
+    const oldIdentifier = asset.identifier;
+
+    // Update displayName + identifier so the next sync still matches this asset
+    await db
       .update(assets)
-      .set({ displayName: displayName.trim() })
-      .where(and(eq(assets.id, assetId), eq(assets.orgId, org.id)))
-      .returning({ id: assets.id, displayName: assets.displayName });
+      .set({ displayName: newName, identifier: newName })
+      .where(and(eq(assets.id, assetId), eq(assets.orgId, org.id)));
 
-    if (!updated) { res.status(404).json({ error: "Asset not found" }); return; }
+    // Find all jobs linked to the old identifier
+    const linkedJobs = org.assetIdentifierField
+      ? await db
+          .select({ jobberJobId: jobs.jobberJobId, cfId: jobCustomFields.id })
+          .from(jobCustomFields)
+          .innerJoin(jobs, eq(jobCustomFields.jobId, jobs.id))
+          .where(
+            and(
+              eq(jobs.orgId, org.id),
+              eq(jobCustomFields.fieldLabel, org.assetIdentifierField),
+              eq(jobCustomFields.fieldValue, oldIdentifier)
+            )
+          )
+      : [];
 
-    res.json({ ok: true, displayName: updated.displayName });
+    // Update the field value in our DB
+    if (linkedJobs.length > 0) {
+      await db
+        .update(jobCustomFields)
+        .set({ fieldValue: newName })
+        .where(inArray(jobCustomFields.id, linkedJobs.map((j) => j.cfId)));
+    }
+
+    // Push the new value to Jobber for each linked job
+    if (org.assetIdentifierFieldId && linkedJobs.length > 0) {
+      const token = await getValidToken(jobberAccountId);
+      try {
+        for (const job of linkedJobs) {
+          await writeAssetIdToJobber(token, job.jobberJobId, org.assetIdentifierFieldId, newName);
+        }
+        console.log(`[assets/rename] pushed "${oldIdentifier}" → "${newName}" to ${linkedJobs.length} Jobber job(s)`);
+      } catch (err) {
+        if (isJobberPermissionError(err)) {
+          console.warn("[assets/rename] Jobber write-back skipped (missing write_jobs scope):", String(err));
+        } else {
+          throw err;
+        }
+      }
+    }
+
+    res.json({ ok: true, displayName: newName });
   } catch (err) {
     console.error("[assets/rename] error:", err);
     res.status(500).json({ error: String(err) });
