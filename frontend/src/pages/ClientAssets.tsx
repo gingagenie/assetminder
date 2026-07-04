@@ -83,10 +83,8 @@ export default function ClientAssets() {
         body: JSON.stringify({ jobberAccountId, displayName: editName.trim() }),
       });
       const data = (await res.json()) as { ok: boolean; displayName?: string };
-      if (data.ok && data.displayName) {
-        setAssetList((prev) =>
-          prev.map((a) => (a.id === assetId ? { ...a, displayName: data.displayName! } : a))
-        );
+      if (data.ok) {
+        await load();
       }
     } finally {
       setSaving(false);
@@ -103,7 +101,7 @@ export default function ClientAssets() {
         `${API}/api/assets/${asset.id}?jobberAccountId=${encodeURIComponent(jobberAccountId)}`,
         { method: "DELETE" }
       );
-      setAssetList((prev) => prev.filter((a) => a.id !== asset.id));
+      await load();
     } finally {
       setDeletingId(null);
     }
@@ -123,7 +121,7 @@ export default function ClientAssets() {
       });
       const data = (await res.json()) as { ok: boolean };
       if (data.ok) {
-        setAssetList((prev) => prev.filter((a) => a.id !== sourceId));
+        await load();
         setMergingId(null);
         setMergeTargetId("");
       }
