@@ -17,6 +17,8 @@ const PORT = process.env.PORT ?? 3001;
 
 const allowedOrigins = [
   "http://localhost:3000",
+  "https://minderapps.io",
+  "https://www.minderapps.io",
   process.env.FRONTEND_URL,
 ].filter(Boolean) as string[];
 
