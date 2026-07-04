@@ -638,13 +638,7 @@ router.post("/assets/:assetId/rename", async (req: Request, res: Response) => {
 
     const oldIdentifier = asset.identifier;
 
-    // Update displayName + identifier so the next sync still matches this asset
-    await db
-      .update(assets)
-      .set({ displayName: newName, identifier: newName })
-      .where(and(eq(assets.id, assetId), eq(assets.orgId, org.id)));
-
-    // Find all jobs linked to the old identifier
+    // Find all jobs linked to the old identifier BEFORE any local change.
     const linkedJobs = org.assetIdentifierField
       ? await db
           .select({ jobberJobId: jobs.jobberJobId, cfId: jobCustomFields.id })
@@ -659,15 +653,8 @@ router.post("/assets/:assetId/rename", async (req: Request, res: Response) => {
           )
       : [];
 
-    // Update the field value in our DB
-    if (linkedJobs.length > 0) {
-      await db
-        .update(jobCustomFields)
-        .set({ fieldValue: newName })
-        .where(inArray(jobCustomFields.id, linkedJobs.map((j) => j.cfId)));
-    }
-
-    // Push the new value to Jobber for each linked job
+    // Push the new value to Jobber FIRST (delete-flow pattern): a failed write
+    // aborts before we touch our DB, so a resync can't clobber and retry is safe.
     if (org.assetIdentifierFieldId && linkedJobs.length > 0) {
       const token = await getValidToken(jobberAccountId);
       try {
@@ -682,6 +669,19 @@ router.post("/assets/:assetId/rename", async (req: Request, res: Response) => {
           throw err;
         }
       }
+    }
+
+    // Jobber is consistent (or intentionally skipped) — now update locally.
+    await db
+      .update(assets)
+      .set({ displayName: newName, identifier: newName })
+      .where(and(eq(assets.id, assetId), eq(assets.orgId, org.id)));
+
+    if (linkedJobs.length > 0) {
+      await db
+        .update(jobCustomFields)
+        .set({ fieldValue: newName })
+        .where(inArray(jobCustomFields.id, linkedJobs.map((j) => j.cfId)));
     }
 
     res.json({ ok: true, displayName: newName });
@@ -700,7 +700,7 @@ router.post("/assets/:assetId/merge", async (req: Request, res: Response) => {
   if (!jobberAccountId) { res.status(400).json({ error: "Missing jobberAccountId" }); return; }
 
   try {
-    const [org] = await db.select({ id: jobberOrgs.id, assetIdentifierField: jobberOrgs.assetIdentifierField })
+    const [org] = await db.select({ id: jobberOrgs.id, assetIdentifierField: jobberOrgs.assetIdentifierField, assetIdentifierFieldId: jobberOrgs.assetIdentifierFieldId })
       .from(jobberOrgs).where(eq(jobberOrgs.jobberAccountId, jobberAccountId)).limit(1);
     if (!org) { res.status(404).json({ error: "Org not found" }); return; }
 
@@ -717,7 +717,39 @@ router.post("/assets/:assetId/merge", async (req: Request, res: Response) => {
 
     if (!org.assetIdentifierField) { res.status(400).json({ error: "No asset identifier field mapped" }); return; }
 
-    // Re-point all jobs from this asset's identifier to the target's identifier
+    // Find all jobs linked to the losing asset's identifier BEFORE any local
+    // change, so we can push the surviving name to Jobber first (delete-flow
+    // pattern). All-or-nothing: a hard write error throws before we touch our
+    // DB, leaving it fully pre-merge so a resync won't clobber and retry is safe.
+    const linkedJobs = await db
+      .select({ jobberJobId: jobs.jobberJobId })
+      .from(jobCustomFields)
+      .innerJoin(jobs, eq(jobCustomFields.jobId, jobs.id))
+      .where(
+        and(
+          eq(jobs.orgId, org.id),
+          eq(jobCustomFields.fieldLabel, org.assetIdentifierField),
+          eq(jobCustomFields.fieldValue, asset.identifier)
+        )
+      );
+
+    if (org.assetIdentifierFieldId && linkedJobs.length > 0) {
+      const token = await getValidToken(jobberAccountId);
+      try {
+        for (const job of linkedJobs) {
+          await writeAssetIdToJobber(token, job.jobberJobId, org.assetIdentifierFieldId, target.identifier);
+        }
+        console.log(`[assets/merge] pushed "${asset.identifier}" → "${target.identifier}" to ${linkedJobs.length} Jobber job(s)`);
+      } catch (err) {
+        if (isJobberPermissionError(err)) {
+          console.warn("[assets/merge] Jobber write-back skipped (missing write_jobs scope):", String(err));
+        } else {
+          throw err;
+        }
+      }
+    }
+
+    // Jobber is consistent (or intentionally skipped) — now re-point locally.
     const orgJobIds = await db.select({ id: jobs.id }).from(jobs).where(eq(jobs.orgId, org.id));
     if (orgJobIds.length > 0) {
       await db.update(jobCustomFields)
