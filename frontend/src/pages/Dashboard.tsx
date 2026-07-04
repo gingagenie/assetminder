@@ -181,8 +181,7 @@ export default function Dashboard() {
     try {
       await fetch(`${API}/api/disconnect`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ jobberAccountId }) });
     } catch { /* continue */ } finally {
-      localStorage.removeItem("jobberAccountId");
-      navigate("/");
+      navigate("/disconnected");
     }
   }
 
@@ -376,11 +375,21 @@ export default function Dashboard() {
                         <p className="text-base font-semibold text-slate-900 truncate">
                           {client.companyName ?? client.name}
                         </p>
-                        <p className="text-[11px] text-slate-500">
-                          {(client.assetCount ?? 0) === 0
-                            ? "0 assets"
-                            : `${client.assetCount} asset${client.assetCount !== 1 ? "s" : ""}`}
-                        </p>
+                        {(client.assetCount ?? 0) === 0 ? (
+                          <p className="text-[11px] text-slate-500">0 assets</p>
+                        ) : (
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              navigate(`/clients/${client.id}/assets`, {
+                                state: { clientName: client.companyName ?? client.name },
+                              });
+                            }}
+                            className="text-[11px] text-slate-500 hover:text-slate-800 hover:underline transition-colors text-left"
+                          >
+                            {client.assetCount} asset{client.assetCount !== 1 ? "s" : ""}
+                          </button>
+                        )}
                         <button
                           disabled={generatingFor === client.id}
                           onClick={(e) => { e.stopPropagation(); handleSharePortal(e, client.id); }}
@@ -402,7 +411,18 @@ export default function Dashboard() {
 
             {/* Service keywords */}
             <div className="bg-white rounded-lg border border-slate-200 p-4">
-              <p className="text-xs font-medium text-slate-700 mb-3">Service keywords</p>
+              <div className="flex items-center gap-1.5 mb-3">
+                <p className="text-xs font-medium text-slate-700">Service filter keywords</p>
+                <div className="relative flex items-center group">
+                  <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-slate-400 cursor-default shrink-0">
+                    <circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/>
+                  </svg>
+                  <div className="pointer-events-none absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-64 rounded-lg bg-slate-800 px-3 py-2.5 text-xs text-slate-200 leading-relaxed shadow-lg opacity-0 group-hover:opacity-100 transition-opacity duration-150 z-50">
+                    AssetMinder uses these keywords to identify which Jobber jobs count as a service visit. Only jobs whose title contains one of these keywords will update an asset's last serviced date and calculate the next due date. Separate multiple keywords with commas. Leave blank to count all jobs.
+                    <span className="absolute top-full left-1/2 -translate-x-1/2 border-4 border-transparent border-t-slate-800" />
+                  </div>
+                </div>
+              </div>
               <input
                 type="text"
                 value={keywordsInput}

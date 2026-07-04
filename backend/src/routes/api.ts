@@ -537,6 +537,237 @@ router.post("/assets/:assetId/interval", async (req: Request, res: Response) => 
   }
 });
 
+// ---------- DELETE /api/assets/:assetId ----------
+
+router.delete("/assets/:assetId", async (req: Request, res: Response) => {
+  const assetId = String(req.params.assetId);
+  const { jobberAccountId } = req.query as { jobberAccountId?: string };
+
+  if (!jobberAccountId) { res.status(400).json({ error: "Missing jobberAccountId" }); return; }
+
+  try {
+    const [org] = await db
+      .select({ id: jobberOrgs.id, assetIdentifierField: jobberOrgs.assetIdentifierField, assetIdentifierFieldId: jobberOrgs.assetIdentifierFieldId })
+      .from(jobberOrgs).where(eq(jobberOrgs.jobberAccountId, jobberAccountId)).limit(1);
+    if (!org) { res.status(404).json({ error: "Org not found" }); return; }
+
+    const [asset] = await db.select({ id: assets.id, identifier: assets.identifier })
+      .from(assets).where(and(eq(assets.id, assetId), eq(assets.orgId, org.id))).limit(1);
+    if (!asset) { res.status(404).json({ error: "Asset not found" }); return; }
+
+    // Clear the custom field in Jobber BEFORE removing local records so the
+    // next sync doesn't see a populated field value and recreate the asset.
+    if (org.assetIdentifierField && org.assetIdentifierFieldId) {
+      const linkedJobs = await db
+        .select({ jobberJobId: jobs.jobberJobId })
+        .from(jobCustomFields)
+        .innerJoin(jobs, eq(jobCustomFields.jobId, jobs.id))
+        .where(
+          and(
+            eq(jobs.orgId, org.id),
+            eq(jobCustomFields.fieldLabel, org.assetIdentifierField),
+            eq(jobCustomFields.fieldValue, asset.identifier)
+          )
+        );
+
+      if (linkedJobs.length > 0) {
+        const token = await getValidToken(jobberAccountId);
+        try {
+          for (const job of linkedJobs) {
+            await writeAssetIdToJobber(token, job.jobberJobId, org.assetIdentifierFieldId, "");
+          }
+          console.log(`[assets/delete] cleared Jobber field on ${linkedJobs.length} job(s) for asset "${asset.identifier}"`);
+        } catch (err) {
+          if (isJobberPermissionError(err)) {
+            console.warn("[assets/delete] Jobber field clear skipped (missing write_jobs scope):", String(err));
+          } else {
+            throw err;
+          }
+        }
+      }
+    }
+
+    // Unlink all jobs from this asset by deleting their custom field entries
+    if (org.assetIdentifierField) {
+      const orgJobIds = await db.select({ id: jobs.id }).from(jobs).where(eq(jobs.orgId, org.id));
+      if (orgJobIds.length > 0) {
+        await db.delete(jobCustomFields).where(
+          and(
+            inArray(jobCustomFields.jobId, orgJobIds.map((j) => j.id)),
+            eq(jobCustomFields.fieldLabel, org.assetIdentifierField),
+            eq(jobCustomFields.fieldValue, asset.identifier)
+          )
+        );
+      }
+    }
+
+    // Clear any other assets that were flagged as similar to this one
+    await db.update(assets).set({ flaggedSimilarTo: null }).where(eq(assets.flaggedSimilarTo, assetId));
+
+    await db.delete(assets).where(and(eq(assets.id, assetId), eq(assets.orgId, org.id)));
+
+    console.log(`[assets/delete] deleted asset ${assetId} (identifier="${asset.identifier}")`);
+    res.json({ ok: true });
+  } catch (err) {
+    console.error("[assets/delete] error:", err);
+    res.status(500).json({ error: String(err) });
+  }
+});
+
+// ---------- POST /api/assets/:assetId/rename ----------
+
+router.post("/assets/:assetId/rename", async (req: Request, res: Response) => {
+  const assetId = String(req.params.assetId);
+  const { jobberAccountId, displayName } = req.body as { jobberAccountId?: string; displayName?: string };
+
+  if (!jobberAccountId) { res.status(400).json({ error: "Missing jobberAccountId" }); return; }
+  if (!displayName?.trim()) { res.status(400).json({ error: "displayName is required" }); return; }
+
+  const newName = displayName.trim();
+
+  try {
+    const [org] = await db
+      .select({ id: jobberOrgs.id, assetIdentifierField: jobberOrgs.assetIdentifierField, assetIdentifierFieldId: jobberOrgs.assetIdentifierFieldId })
+      .from(jobberOrgs).where(eq(jobberOrgs.jobberAccountId, jobberAccountId)).limit(1);
+    if (!org) { res.status(404).json({ error: "Org not found" }); return; }
+
+    const [asset] = await db
+      .select({ identifier: assets.identifier })
+      .from(assets).where(and(eq(assets.id, assetId), eq(assets.orgId, org.id))).limit(1);
+    if (!asset) { res.status(404).json({ error: "Asset not found" }); return; }
+
+    const oldIdentifier = asset.identifier;
+
+    // Update displayName + identifier so the next sync still matches this asset
+    await db
+      .update(assets)
+      .set({ displayName: newName, identifier: newName })
+      .where(and(eq(assets.id, assetId), eq(assets.orgId, org.id)));
+
+    // Find all jobs linked to the old identifier
+    const linkedJobs = org.assetIdentifierField
+      ? await db
+          .select({ jobberJobId: jobs.jobberJobId, cfId: jobCustomFields.id })
+          .from(jobCustomFields)
+          .innerJoin(jobs, eq(jobCustomFields.jobId, jobs.id))
+          .where(
+            and(
+              eq(jobs.orgId, org.id),
+              eq(jobCustomFields.fieldLabel, org.assetIdentifierField),
+              eq(jobCustomFields.fieldValue, oldIdentifier)
+            )
+          )
+      : [];
+
+    // Update the field value in our DB
+    if (linkedJobs.length > 0) {
+      await db
+        .update(jobCustomFields)
+        .set({ fieldValue: newName })
+        .where(inArray(jobCustomFields.id, linkedJobs.map((j) => j.cfId)));
+    }
+
+    // Push the new value to Jobber for each linked job
+    if (org.assetIdentifierFieldId && linkedJobs.length > 0) {
+      const token = await getValidToken(jobberAccountId);
+      try {
+        for (const job of linkedJobs) {
+          await writeAssetIdToJobber(token, job.jobberJobId, org.assetIdentifierFieldId, newName);
+        }
+        console.log(`[assets/rename] pushed "${oldIdentifier}" → "${newName}" to ${linkedJobs.length} Jobber job(s)`);
+      } catch (err) {
+        if (isJobberPermissionError(err)) {
+          console.warn("[assets/rename] Jobber write-back skipped (missing write_jobs scope):", String(err));
+        } else {
+          throw err;
+        }
+      }
+    }
+
+    res.json({ ok: true, displayName: newName });
+  } catch (err) {
+    console.error("[assets/rename] error:", err);
+    res.status(500).json({ error: String(err) });
+  }
+});
+
+// ---------- POST /api/assets/:assetId/merge ----------
+
+router.post("/assets/:assetId/merge", async (req: Request, res: Response) => {
+  const assetId = String(req.params.assetId);
+  const { jobberAccountId, targetAssetId } = req.body as { jobberAccountId?: string; targetAssetId?: string };
+
+  if (!jobberAccountId) { res.status(400).json({ error: "Missing jobberAccountId" }); return; }
+
+  try {
+    const [org] = await db.select({ id: jobberOrgs.id, assetIdentifierField: jobberOrgs.assetIdentifierField })
+      .from(jobberOrgs).where(eq(jobberOrgs.jobberAccountId, jobberAccountId)).limit(1);
+    if (!org) { res.status(404).json({ error: "Org not found" }); return; }
+
+    const [asset] = await db.select()
+      .from(assets).where(and(eq(assets.id, assetId), eq(assets.orgId, org.id))).limit(1);
+    if (!asset) { res.status(404).json({ error: "Asset not found" }); return; }
+    const resolvedTargetId = targetAssetId ?? asset.flaggedSimilarTo;
+    if (!resolvedTargetId) { res.status(400).json({ error: "No target asset specified" }); return; }
+    if (resolvedTargetId === assetId) { res.status(400).json({ error: "Cannot merge an asset into itself" }); return; }
+
+    const [target] = await db.select()
+      .from(assets).where(and(eq(assets.id, resolvedTargetId), eq(assets.orgId, org.id))).limit(1);
+    if (!target) { res.status(404).json({ error: "Target asset not found" }); return; }
+
+    if (!org.assetIdentifierField) { res.status(400).json({ error: "No asset identifier field mapped" }); return; }
+
+    // Re-point all jobs from this asset's identifier to the target's identifier
+    const orgJobIds = await db.select({ id: jobs.id }).from(jobs).where(eq(jobs.orgId, org.id));
+    if (orgJobIds.length > 0) {
+      await db.update(jobCustomFields)
+        .set({ fieldValue: target.identifier })
+        .where(
+          and(
+            inArray(jobCustomFields.jobId, orgJobIds.map((j) => j.id)),
+            eq(jobCustomFields.fieldLabel, org.assetIdentifierField),
+            eq(jobCustomFields.fieldValue, asset.identifier)
+          )
+        );
+    }
+
+    // Re-compute derived data for the org then remove the absorbed asset
+    await groupAssets(jobberAccountId);
+    await calculateDueDates(jobberAccountId);
+    await db.delete(assets).where(and(eq(assets.id, assetId), eq(assets.orgId, org.id)));
+
+    console.log(`[assets/merge] merged asset ${assetId} ("${asset.identifier}") into ${target.id} ("${target.identifier}")`);
+    res.json({ ok: true, mergedIntoId: target.id });
+  } catch (err) {
+    console.error("[assets/merge] error:", err);
+    res.status(500).json({ error: String(err) });
+  }
+});
+
+// ---------- POST /api/assets/:assetId/dismiss-flag ----------
+
+router.post("/assets/:assetId/dismiss-flag", async (req: Request, res: Response) => {
+  const assetId = String(req.params.assetId);
+  const { jobberAccountId } = req.body as { jobberAccountId?: string };
+
+  if (!jobberAccountId) { res.status(400).json({ error: "Missing jobberAccountId" }); return; }
+
+  try {
+    const [org] = await db.select({ id: jobberOrgs.id })
+      .from(jobberOrgs).where(eq(jobberOrgs.jobberAccountId, jobberAccountId)).limit(1);
+    if (!org) { res.status(404).json({ error: "Org not found" }); return; }
+
+    await db.update(assets)
+      .set({ flagDismissed: true })
+      .where(and(eq(assets.id, assetId), eq(assets.orgId, org.id)));
+
+    res.json({ ok: true });
+  } catch (err) {
+    console.error("[assets/dismiss-flag] error:", err);
+    res.status(500).json({ error: String(err) });
+  }
+});
+
 // ---------- POST /api/assets/:assetId/add-jobs ----------
 // Links additional jobs to an existing asset via the asset identifier custom field.
 
@@ -713,6 +944,17 @@ router.get("/assets/:assetId/jobs", async (req: Request, res: Response) => {
       clientName = client?.companyName ?? client?.name ?? null;
     }
 
+    // Similar asset flag
+    let similarAsset: { id: string; displayName: string } | null = null;
+    if (asset.flaggedSimilarTo && !asset.flagDismissed) {
+      const [sim] = await db
+        .select({ id: assets.id, displayName: assets.displayName })
+        .from(assets)
+        .where(eq(assets.id, asset.flaggedSimilarTo))
+        .limit(1);
+      similarAsset = sim ?? null;
+    }
+
     // Jobs linked to this asset via the identifier custom field
     const jobRows = await db
       .select({
@@ -784,6 +1026,8 @@ router.get("/assets/:assetId/jobs", async (req: Request, res: Response) => {
         serviceIntervalDays: intervalDays,
         jobCount: asset.jobCount,
         status,
+        similarAssetId: similarAsset?.id ?? null,
+        similarAssetName: similarAsset?.displayName ?? null,
       },
       jobs: jobRows.map((j) => ({
         id: j.id,
@@ -822,12 +1066,23 @@ router.get("/assets", async (req: Request, res: Response) => {
   try {
     const org = await requireOrg(jobberAccountId);
 
+    // clientId may be the internal UUID — resolve to jobberClientId via the clients table
+    let jobberClientIdFilter: string | null = null;
+    if (clientId && typeof clientId === "string") {
+      const [clientRow] = await db
+        .select({ jobberClientId: clients.jobberClientId })
+        .from(clients)
+        .where(and(eq(clients.id, clientId), eq(clients.orgId, org.id)))
+        .limit(1);
+      jobberClientIdFilter = clientRow?.jobberClientId ?? clientId;
+    }
+
     const rows = await db
       .select()
       .from(assets)
       .where(
-        clientId && typeof clientId === "string"
-          ? and(eq(assets.orgId, org.id), eq(assets.jobberClientId, clientId))
+        jobberClientIdFilter
+          ? and(eq(assets.orgId, org.id), eq(assets.jobberClientId, jobberClientIdFilter))
           : eq(assets.orgId, org.id)
       );
 

@@ -23,6 +23,8 @@ interface AssetDetail {
   serviceIntervalDays: number | null;
   jobCount: number;
   status: "ok" | "amber" | "overdue" | "unscheduled";
+  similarAssetId: string | null;
+  similarAssetName: string | null;
 }
 
 interface LineItem {
@@ -76,6 +78,9 @@ export default function AssetDetail() {
   const [savingInterval, setSavingInterval] = useState(false);
   const [intervalSaved, setIntervalSaved] = useState(false);
   const [intervalError, setIntervalError] = useState<string | null>(null);
+  const [deleting, setDeleting] = useState(false);
+  const [merging, setMerging] = useState(false);
+  const [dismissingFlag, setDismissingFlag] = useState(false);
   const [expandedJobs, setExpandedJobs] = useState<Set<string>>(new Set());
   const [jobNotes, setJobNotes] = useState<Record<string, { workNotes: string | null; technicianName: string | null }>>({});
   const [loadingNotes, setLoadingNotes] = useState<Set<string>>(new Set());
@@ -194,6 +199,52 @@ export default function AssetDetail() {
     }
   }
 
+  async function handleDelete() {
+    if (!asset || !jobberAccountId) return;
+    if (!window.confirm(`Delete "${asset.displayName}"? This removes it from AssetMinder only. Jobs in Jobber are not affected.`)) return;
+    setDeleting(true);
+    try {
+      await fetch(`${API}/api/assets/${asset.id}?jobberAccountId=${encodeURIComponent(jobberAccountId)}`, { method: "DELETE" });
+      navigate(fromClient ? `/clients/${fromClient.clientId}` : "/dashboard");
+    } catch {
+      setDeleting(false);
+    }
+  }
+
+  async function handleMerge() {
+    if (!asset || !jobberAccountId || !asset.similarAssetId) return;
+    if (!window.confirm(`Merge "${asset.displayName}" into "${asset.similarAssetName}"? All service history will move to the existing asset.`)) return;
+    setMerging(true);
+    try {
+      const res = await fetch(`${API}/api/assets/${asset.id}/merge`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ jobberAccountId }),
+      });
+      const data = (await res.json()) as { ok: boolean; mergedIntoId?: string };
+      if (data.ok && data.mergedIntoId) {
+        navigate(`/assets/${data.mergedIntoId}`, { state: fromClient });
+      }
+    } catch {
+      setMerging(false);
+    }
+  }
+
+  async function handleDismissFlag() {
+    if (!asset || !jobberAccountId) return;
+    setDismissingFlag(true);
+    try {
+      await fetch(`${API}/api/assets/${asset.id}/dismiss-flag`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ jobberAccountId }),
+      });
+      setAsset((prev) => prev ? { ...prev, similarAssetId: null, similarAssetName: null } : prev);
+    } finally {
+      setDismissingFlag(false);
+    }
+  }
+
   if (loading) {
     return (
       <div style={{ fontFamily: "Inter, sans-serif" }} className="min-h-screen bg-slate-50 flex items-center justify-center">
@@ -233,6 +284,39 @@ export default function AssetDetail() {
           <ChevronLeft className="h-4 w-4" />
           {fromClient ? `Back to ${fromClient.clientName}` : "Back to dashboard"}
         </Link>
+
+        {/* Duplicate warning banner */}
+        {asset.similarAssetId && (
+          <div className="rounded-xl border border-amber-200 bg-amber-50 px-5 py-4 space-y-3">
+            <div className="flex items-start gap-3">
+              <svg className="h-5 w-5 text-amber-500 shrink-0 mt-0.5" viewBox="0 0 20 20" fill="currentColor">
+                <path fillRule="evenodd" d="M8.485 2.495c.673-1.167 2.357-1.167 3.03 0l6.28 10.875c.673 1.167-.17 2.625-1.516 2.625H3.72c-1.347 0-2.189-1.458-1.515-2.625L8.485 2.495zM10 5a.75.75 0 01.75.75v3.5a.75.75 0 01-1.5 0v-3.5A.75.75 0 0110 5zm0 9a1 1 0 100-2 1 1 0 000 2z" clipRule="evenodd" />
+              </svg>
+              <div>
+                <p className="text-sm font-semibold text-amber-800">Possible duplicate detected</p>
+                <p className="text-sm text-amber-700 mt-0.5">
+                  This asset looks very similar to <strong>{asset.similarAssetName}</strong>, which already exists for this client. It may have been created from a slightly different spelling during sync.
+                </p>
+              </div>
+            </div>
+            <div className="flex items-center gap-2 pl-8">
+              <button
+                onClick={handleMerge}
+                disabled={merging}
+                className="h-8 px-3 rounded-lg bg-amber-800 text-white text-xs font-semibold hover:bg-amber-900 transition-colors disabled:opacity-50"
+              >
+                {merging ? "Merging…" : `Merge into "${asset.similarAssetName}"`}
+              </button>
+              <button
+                onClick={handleDismissFlag}
+                disabled={dismissingFlag}
+                className="h-8 px-3 rounded-lg border border-amber-300 text-amber-800 text-xs font-medium hover:bg-amber-100 transition-colors disabled:opacity-50"
+              >
+                Keep both
+              </button>
+            </div>
+          </div>
+        )}
 
         {/* Hero */}
         <div className="space-y-4">
@@ -471,6 +555,21 @@ export default function AssetDetail() {
             </div>
           )}
         </section>
+
+        {/* Delete asset */}
+        <div className="rounded-xl border border-red-200 bg-red-50 px-6 py-5">
+          <p className="text-sm font-semibold text-red-700 mb-1">Delete asset</p>
+          <p className="text-xs text-red-500 mb-4">
+            Removes this asset and its service history from AssetMinder. Jobs in Jobber are not affected.
+          </p>
+          <button
+            onClick={handleDelete}
+            disabled={deleting}
+            className="h-9 px-4 rounded-lg border border-red-300 bg-white text-red-600 text-sm font-medium hover:bg-red-50 transition-colors disabled:opacity-50"
+          >
+            {deleting ? "Deleting…" : "Delete asset"}
+          </button>
+        </div>
 
       </main>
     </div>

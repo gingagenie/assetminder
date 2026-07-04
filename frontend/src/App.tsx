@@ -16,6 +16,8 @@ import Admin from "@/pages/Admin";
 import UnassignedJobs from "@/pages/UnassignedJobs";
 import Lock from "@/pages/Lock";
 import SetPin from "@/pages/SetPin";
+import Disconnected from "@/pages/Disconnected";
+import ClientAssets from "@/pages/ClientAssets";
 import { SubscriptionWall } from "@/components/SubscriptionWall";
 
 function RequireAuth({ children }: { children: React.ReactNode }) {
@@ -42,9 +44,13 @@ function RequireAuth({ children }: { children: React.ReactNode }) {
   // Never gate the set-pin page itself — that would loop and prevent it rendering.
   if (location.pathname === "/set-pin") return <>{children}</>;
 
-  if (pinSet === null) return null; // still checking
-  // Connected but no PIN yet (existing users) — force PIN setup before proceeding.
-  if (!pinSet) return <Navigate to="/set-pin" replace state={{ next: location.pathname }} />;
+  // Always read the live cache so a just-set PIN (setCachedPinSet called in SetPin
+  // before navigate()) is visible in this render cycle, not just the next one.
+  const livePin = getCachedPinSet(id);
+  const effectivePin = livePin !== null ? livePin : pinSet;
+
+  if (effectivePin === null) return null; // still waiting for API
+  if (!effectivePin) return <Navigate to="/set-pin" replace state={{ next: location.pathname }} />;
   return <>{children}</>;
 }
 
@@ -74,6 +80,7 @@ export default function App() {
           <Route path="/onboarding" element={<RequireAuth><Onboarding /></RequireAuth>} />
           <Route path="/dashboard" element={<RequireAuth><Dashboard /></RequireAuth>} />
           <Route path="/clients/:clientId" element={<RequireAuth><ClientDetail /></RequireAuth>} />
+          <Route path="/clients/:clientId/assets" element={<RequireAuth><ClientAssets /></RequireAuth>} />
           <Route path="/assets/:assetId" element={<RequireAuth><AssetDetail /></RequireAuth>} />
           <Route path="/portal/:token" element={<Portal />} />
           <Route path="/terms" element={<Terms />} />
@@ -81,6 +88,7 @@ export default function App() {
           <Route path="/help" element={<Help />} />
           <Route path="/admin" element={<Admin />} />
           <Route path="/unassigned-jobs" element={<RequireAuth><UnassignedJobs /></RequireAuth>} />
+          <Route path="/disconnected" element={<Disconnected />} />
         </Routes>
       </HashRouter>
       {subscriptionRequired && <SubscriptionWall />}
