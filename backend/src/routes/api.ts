@@ -1636,6 +1636,12 @@ router.get("/jobs/:jobId/notes", async (req: Request, res: Response) => {
     const [org] = await db.select().from(jobberOrgs).where(eq(jobberOrgs.id, job.orgId)).limit(1);
     if (!org) { res.status(404).json({ error: "Org not found" }); return; }
 
+    // Ownership: the caller's session must own this job (closes cross-org IDOR).
+    if (req.accountId && org.jobberAccountId !== req.accountId) {
+      res.status(404).json({ error: "Job not found" });
+      return;
+    }
+
     jobberAccountId = org.jobberAccountId;
 
     const accessToken = await getValidToken(org.jobberAccountId);
@@ -1804,6 +1810,12 @@ router.get("/jobs/:jobId/photos", async (req: Request, res: Response) => {
     const [org] = await db.select().from(jobberOrgs).where(eq(jobberOrgs.id, job.orgId)).limit(1);
     if (!org) { res.status(404).json({ error: "Org not found" }); return; }
 
+    // Ownership: the caller's session must own this job (closes cross-org IDOR).
+    if (req.accountId && org.jobberAccountId !== req.accountId) {
+      res.status(404).json({ error: "Job not found" });
+      return;
+    }
+
     const accessToken = await getValidToken(org.jobberAccountId);
     const [photoAttachments, exclusions] = await Promise.all([
       fetchJobPhotos(accessToken, job.jobberJobId),
@@ -1840,6 +1852,19 @@ router.post("/jobs/:jobId/photos/exclude", async (req: Request, res: Response) =
   try {
     const [job] = await db.select().from(jobs).where(eq(jobs.id, jobId)).limit(1);
     if (!job) { res.status(404).json({ error: "Job not found" }); return; }
+
+    // Ownership: the caller's session must own this job (closes cross-org IDOR).
+    if (req.accountId) {
+      const [callerOrg] = await db
+        .select({ id: jobberOrgs.id })
+        .from(jobberOrgs)
+        .where(eq(jobberOrgs.jobberAccountId, req.accountId))
+        .limit(1);
+      if (!callerOrg || callerOrg.id !== job.orgId) {
+        res.status(404).json({ error: "Job not found" });
+        return;
+      }
+    }
 
     if (excluded) {
       await db

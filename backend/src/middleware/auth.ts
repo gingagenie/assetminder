@@ -43,10 +43,17 @@ export async function resolveAuth(req: Request, _res: Response, next: NextFuncti
  * everything through. Once AUTH_ENFORCE=true, requests without a valid session
  * cookie are rejected — the legacy param is no longer trusted.
  */
+// Session-less, client-portal-facing reads (UUID-capability URLs). These stay
+// public so the magic-link portal keeps working once enforcement is on.
+// req.path is relative to the /api mount (e.g. "/portal/abc", "/jobs/x/pdf").
+function isPublicPortalPath(req: Request): boolean {
+  if (req.path.startsWith("/portal/")) return true;
+  if (req.method !== "GET") return false;
+  return /^\/assets\/[^/]+\/jobs$/.test(req.path) || /^\/jobs\/[^/]+\/pdf$/.test(req.path);
+}
+
 export function requireAuth(req: Request, res: Response, next: NextFunction) {
-  // The client portal is a public magic-link (no session) — must stay reachable
-  // once enforcement is on. req.path is relative to the /api mount (e.g. "/portal/abc").
-  if (req.path.startsWith("/portal/")) return next();
+  if (isPublicPortalPath(req)) return next();
   if (req.sessionAccountId) return next();
   if (process.env.AUTH_ENFORCE === "true") {
     res.status(401).json({ error: "unauthorized" });

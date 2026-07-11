@@ -11,7 +11,7 @@ const PRICE_ID = process.env.STRIPE_PRICE_ID!;
 
 // POST /api/billing/create-checkout-session
 router.post("/create-checkout-session", async (req: Request, res: Response) => {
-  const { jobberAccountId } = req.body as { jobberAccountId?: string };
+  const jobberAccountId = req.accountId;
   if (!jobberAccountId) {
     res.status(400).json({ error: "jobberAccountId required" });
     return;
@@ -106,7 +106,7 @@ router.post("/webhook", async (req: Request, res: Response) => {
 
 // GET /api/billing/status — NOT behind subscription middleware, safe to call from expired orgs
 router.get("/status", async (req: Request, res: Response) => {
-  const { jobberAccountId } = req.query as { jobberAccountId?: string };
+  const jobberAccountId = req.accountId;
   if (!jobberAccountId) {
     res.status(400).json({ error: "jobberAccountId required" });
     return;
@@ -162,7 +162,7 @@ router.get("/status", async (req: Request, res: Response) => {
 
 // GET /api/billing/portal-url
 router.get("/portal-url", async (req: Request, res: Response) => {
-  const { jobberAccountId } = req.query as { jobberAccountId?: string };
+  const jobberAccountId = req.accountId;
   if (!jobberAccountId) {
     res.status(400).json({ error: "jobberAccountId required" });
     return;
