@@ -115,7 +115,7 @@ function isDisconnectError(err: unknown): boolean {
 // ---------- GET /api/me ----------
 
 router.get("/me", async (req: Request, res: Response) => {
-  const { jobberAccountId } = req.query;
+  const jobberAccountId = req.accountId;
 
   if (!jobberAccountId || typeof jobberAccountId !== "string") {
     res.status(400).json({ error: "Missing required query param: jobberAccountId" });
@@ -147,7 +147,7 @@ router.get("/me", async (req: Request, res: Response) => {
 // ---------- POST /api/sync ----------
 
 router.post("/sync", async (req: Request, res: Response) => {
-  const { jobberAccountId } = req.body as { jobberAccountId?: string };
+  const jobberAccountId = req.accountId;
 
   if (!jobberAccountId) {
     res.status(400).json({ error: "Missing required body param: jobberAccountId" });
@@ -190,7 +190,7 @@ const CUSTOM_FIELD_CONFIGS_QUERY = `
 `;
 
 router.get("/custom-fields", async (req: Request, res: Response) => {
-  const { jobberAccountId } = req.query;
+  const jobberAccountId = req.accountId;
 
   if (!jobberAccountId || typeof jobberAccountId !== "string") {
     res.status(400).json({ error: "Missing required query param: jobberAccountId" });
@@ -219,11 +219,11 @@ router.get("/custom-fields", async (req: Request, res: Response) => {
 // ---------- POST /api/orgs/field-mapping ----------
 
 router.post("/orgs/field-mapping", async (req: Request, res: Response) => {
-  const { jobberAccountId, fieldLabel, fieldId } = req.body as {
-    jobberAccountId?: string;
+  const { fieldLabel, fieldId } = req.body as {
     fieldLabel?: string;
     fieldId?: string;
   };
+  const jobberAccountId = req.accountId;
 
   if (!jobberAccountId || !fieldLabel) {
     res.status(400).json({ error: "Missing required body params: jobberAccountId, fieldLabel" });
@@ -252,7 +252,7 @@ router.post("/orgs/field-mapping", async (req: Request, res: Response) => {
 // ---------- GET /api/orgs/field-mapping ----------
 
 router.get("/orgs/field-mapping", async (req: Request, res: Response) => {
-  const { jobberAccountId } = req.query;
+  const jobberAccountId = req.accountId;
 
   if (!jobberAccountId || typeof jobberAccountId !== "string") {
     res.status(400).json({ error: "Missing required query param: jobberAccountId" });
@@ -291,7 +291,7 @@ const CUSTOM_FIELD_CONFIGS_QUERY_API = `
 const ASSET_FIELD_NAME_RE = /serial|asset|equipment|\bid\b/i;
 
 router.post("/orgs/setup-asset-field", async (req: Request, res: Response) => {
-  const { jobberAccountId } = req.body as { jobberAccountId?: string };
+  const jobberAccountId = req.accountId;
   if (!jobberAccountId) {
     res.status(400).json({ error: "Missing jobberAccountId" });
     return;
@@ -397,12 +397,12 @@ router.post("/orgs/setup-asset-field", async (req: Request, res: Response) => {
 // Creates a new asset and links the given jobs to it via the asset identifier custom field.
 
 router.post("/assets/from-jobs", async (req: Request, res: Response) => {
-  const { jobberAccountId, clientId, displayName, jobberJobIds } = req.body as {
-    jobberAccountId?: string;
+  const { clientId, displayName, jobberJobIds } = req.body as {
     clientId?: string;
     displayName?: string;
     jobberJobIds?: string[];
   };
+  const jobberAccountId = req.accountId;
 
   if (!jobberAccountId || !displayName || !Array.isArray(jobberJobIds) || jobberJobIds.length === 0) {
     res.status(400).json({ error: "jobberAccountId, displayName, and jobberJobIds[] required" });
@@ -505,7 +505,8 @@ router.post("/assets/from-jobs", async (req: Request, res: Response) => {
 
 router.post("/assets/:assetId/interval", async (req: Request, res: Response) => {
   const { assetId } = req.params;
-  const { intervalDays, jobberAccountId } = req.body as { intervalDays?: number; jobberAccountId?: string };
+  const { intervalDays } = req.body as { intervalDays?: number };
+  const jobberAccountId = req.accountId;
 
   if (!jobberAccountId) {
     res.status(400).json({ error: "Missing required body param: jobberAccountId" });
@@ -541,7 +542,7 @@ router.post("/assets/:assetId/interval", async (req: Request, res: Response) => 
 
 router.delete("/assets/:assetId", async (req: Request, res: Response) => {
   const assetId = String(req.params.assetId);
-  const { jobberAccountId } = req.query as { jobberAccountId?: string };
+  const jobberAccountId = req.accountId;
 
   if (!jobberAccountId) { res.status(400).json({ error: "Missing jobberAccountId" }); return; }
 
@@ -618,7 +619,8 @@ router.delete("/assets/:assetId", async (req: Request, res: Response) => {
 
 router.post("/assets/:assetId/rename", async (req: Request, res: Response) => {
   const assetId = String(req.params.assetId);
-  const { jobberAccountId, displayName } = req.body as { jobberAccountId?: string; displayName?: string };
+  const { displayName } = req.body as { displayName?: string };
+  const jobberAccountId = req.accountId;
 
   if (!jobberAccountId) { res.status(400).json({ error: "Missing jobberAccountId" }); return; }
   if (!displayName?.trim()) { res.status(400).json({ error: "displayName is required" }); return; }
@@ -695,7 +697,8 @@ router.post("/assets/:assetId/rename", async (req: Request, res: Response) => {
 
 router.post("/assets/:assetId/merge", async (req: Request, res: Response) => {
   const assetId = String(req.params.assetId);
-  const { jobberAccountId, targetAssetId } = req.body as { jobberAccountId?: string; targetAssetId?: string };
+  const { targetAssetId } = req.body as { targetAssetId?: string };
+  const jobberAccountId = req.accountId;
 
   if (!jobberAccountId) { res.status(400).json({ error: "Missing jobberAccountId" }); return; }
 
@@ -780,7 +783,7 @@ router.post("/assets/:assetId/merge", async (req: Request, res: Response) => {
 
 router.post("/assets/:assetId/dismiss-flag", async (req: Request, res: Response) => {
   const assetId = String(req.params.assetId);
-  const { jobberAccountId } = req.body as { jobberAccountId?: string };
+  const jobberAccountId = req.accountId;
 
   if (!jobberAccountId) { res.status(400).json({ error: "Missing jobberAccountId" }); return; }
 
@@ -805,10 +808,10 @@ router.post("/assets/:assetId/dismiss-flag", async (req: Request, res: Response)
 
 router.post("/assets/:assetId/add-jobs", async (req: Request, res: Response) => {
   const assetId = String(req.params.assetId);
-  const { jobberAccountId, jobberJobIds } = req.body as {
-    jobberAccountId?: string;
+  const { jobberJobIds } = req.body as {
     jobberJobIds?: string[];
   };
+  const jobberAccountId = req.accountId;
 
   if (!jobberAccountId || !Array.isArray(jobberJobIds) || jobberJobIds.length === 0) {
     res.status(400).json({ error: "jobberAccountId and jobberJobIds[] required" });
@@ -914,7 +917,7 @@ router.post("/assets/:assetId/add-jobs", async (req: Request, res: Response) => 
 // ---------- POST /api/calculate-due-dates ----------
 
 router.post("/calculate-due-dates", async (req: Request, res: Response) => {
-  const { jobberAccountId } = req.body as { jobberAccountId?: string };
+  const jobberAccountId = req.accountId;
 
   if (!jobberAccountId) {
     res.status(400).json({ error: "Missing required body param: jobberAccountId" });
@@ -933,7 +936,7 @@ router.post("/calculate-due-dates", async (req: Request, res: Response) => {
 // ---------- POST /api/group-assets ----------
 
 router.post("/group-assets", async (req: Request, res: Response) => {
-  const { jobberAccountId } = req.body as { jobberAccountId?: string };
+  const jobberAccountId = req.accountId;
 
   if (!jobberAccountId) {
     res.status(400).json({ error: "Missing required body param: jobberAccountId" });
@@ -1088,7 +1091,8 @@ router.get("/assets/:assetId/jobs", async (req: Request, res: Response) => {
 // ---------- GET /api/assets ----------
 
 router.get("/assets", async (req: Request, res: Response) => {
-  const { jobberAccountId, clientId } = req.query;
+  const { clientId } = req.query;
+  const jobberAccountId = req.accountId;
 
   if (!jobberAccountId || typeof jobberAccountId !== "string") {
     res.status(400).json({ error: "Missing required query param: jobberAccountId" });
@@ -1155,7 +1159,7 @@ router.get("/assets", async (req: Request, res: Response) => {
 // ---------- GET /api/clients ----------
 
 router.get("/clients", async (req: Request, res: Response) => {
-  const { jobberAccountId } = req.query;
+  const jobberAccountId = req.accountId;
 
   if (!jobberAccountId || typeof jobberAccountId !== "string") {
     res.status(400).json({ error: "Missing required query param: jobberAccountId" });
@@ -1179,7 +1183,8 @@ router.get("/clients", async (req: Request, res: Response) => {
 
 router.post("/clients/:clientId/interval", async (req: Request, res: Response) => {
   const clientId = String(req.params.clientId);
-  const { intervalDays, jobberAccountId } = req.body as { intervalDays?: number | null; jobberAccountId?: string };
+  const { intervalDays } = req.body as { intervalDays?: number | null };
+  const jobberAccountId = req.accountId;
 
   if (!jobberAccountId) {
     res.status(400).json({ error: "Missing required body param: jobberAccountId" });
@@ -1244,7 +1249,7 @@ router.post("/clients/:clientId/interval", async (req: Request, res: Response) =
 
 router.get("/clients/:clientId/unassigned-jobs", async (req: Request, res: Response) => {
   const clientId = String(req.params.clientId);
-  const { jobberAccountId } = req.query;
+  const jobberAccountId = req.accountId;
 
   if (!jobberAccountId || typeof jobberAccountId !== "string") {
     res.status(400).json({ error: "Missing required query param: jobberAccountId" });
@@ -1310,10 +1315,10 @@ router.get("/clients/:clientId/unassigned-jobs", async (req: Request, res: Respo
 
 router.post("/jobs/:jobId/set-asset-id", async (req: Request, res: Response) => {
   const jobId = String(req.params.jobId);
-  const { assetIdentifier, jobberAccountId } = req.body as {
+  const { assetIdentifier } = req.body as {
     assetIdentifier?: string;
-    jobberAccountId?: string;
   };
+  const jobberAccountId = req.accountId;
 
   if (!jobberAccountId || !assetIdentifier?.trim()) {
     res.status(400).json({ error: "Missing jobberAccountId or assetIdentifier" });
@@ -1385,7 +1390,7 @@ router.post("/jobs/:jobId/set-asset-id", async (req: Request, res: Response) => 
 
 router.post("/clients/:clientId/portal-link", async (req: Request, res: Response) => {
   const clientId = String(req.params.clientId);
-  const { jobberAccountId } = req.body as { jobberAccountId?: string };
+  const jobberAccountId = req.accountId;
   const frontendBase = process.env.FRONTEND_URL ?? "http://localhost:3000";
 
   if (!jobberAccountId) {
@@ -1470,7 +1475,8 @@ router.get("/portal/:token", async (req: Request, res: Response) => {
 // Returns jobs with no asset identifier custom field value, grouped by client.
 
 router.get("/jobs/unassigned", async (req: Request, res: Response) => {
-  const { jobberAccountId, clientId, search } = req.query;
+  const { clientId, search } = req.query;
+  const jobberAccountId = req.accountId;
 
   if (!jobberAccountId || typeof jobberAccountId !== "string") {
     res.status(400).json({ error: "Missing required query param: jobberAccountId" });
@@ -1581,7 +1587,7 @@ router.get("/jobs/unassigned", async (req: Request, res: Response) => {
 // Returns the total number of unassigned jobs for a quick badge/banner count.
 
 router.get("/stats/unassigned-count", async (req: Request, res: Response) => {
-  const { jobberAccountId } = req.query;
+  const jobberAccountId = req.accountId;
 
   if (!jobberAccountId || typeof jobberAccountId !== "string") {
     res.status(400).json({ error: "Missing required query param: jobberAccountId" });
@@ -2113,7 +2119,7 @@ router.get("/jobs/:jobId/pdf", async (req: Request, res: Response) => {
 // ---------- GET /api/settings ----------
 
 router.get("/settings", async (req: Request, res: Response) => {
-  const { jobberAccountId } = req.query;
+  const jobberAccountId = req.accountId;
 
   if (!jobberAccountId || typeof jobberAccountId !== "string") {
     res.status(400).json({ error: "Missing required query param: jobberAccountId" });
@@ -2137,10 +2143,10 @@ router.get("/settings", async (req: Request, res: Response) => {
 // ---------- POST /api/settings ----------
 
 router.post("/settings", async (req: Request, res: Response) => {
-  const { jobberAccountId, serviceKeywords } = req.body as {
-    jobberAccountId?: string;
+  const { serviceKeywords } = req.body as {
     serviceKeywords?: string[];
   };
+  const jobberAccountId = req.accountId;
 
   if (!jobberAccountId) {
     res.status(400).json({ error: "Missing required body param: jobberAccountId" });
@@ -2172,7 +2178,7 @@ router.post("/settings", async (req: Request, res: Response) => {
 // ---------- POST /api/disconnect ----------
 
 router.post("/disconnect", async (req: Request, res: Response) => {
-  const { jobberAccountId } = req.body as { jobberAccountId?: string };
+  const jobberAccountId = req.accountId;
 
   if (!jobberAccountId) {
     res.status(400).json({ error: "Missing required body param: jobberAccountId" });

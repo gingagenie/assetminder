@@ -44,6 +44,9 @@ export async function resolveAuth(req: Request, _res: Response, next: NextFuncti
  * cookie are rejected — the legacy param is no longer trusted.
  */
 export function requireAuth(req: Request, res: Response, next: NextFunction) {
+  // The client portal is a public magic-link (no session) — must stay reachable
+  // once enforcement is on. req.path is relative to the /api mount (e.g. "/portal/abc").
+  if (req.path.startsWith("/portal/")) return next();
   if (req.sessionAccountId) return next();
   if (process.env.AUTH_ENFORCE === "true") {
     res.status(401).json({ error: "unauthorized" });
