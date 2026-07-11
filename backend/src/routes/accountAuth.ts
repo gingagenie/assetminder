@@ -6,10 +6,13 @@ import { isValidPassword, hashPassword, verifyPassword } from "../lib/password";
 import {
   createSession,
   destroySession,
+  destroyAllSessions,
   resolveSession,
   SESSION_COOKIE,
   sessionCookieOptions,
 } from "../lib/session";
+import { createResetToken, consumeResetToken } from "../lib/passwordReset";
+import { sendPasswordResetEmail } from "../lib/mailer";
 
 const router = Router();
 
@@ -93,6 +96,63 @@ router.post("/login", async (req: Request, res: Response) => {
   const { token } = await createSession(org.jobberAccountId, reqMeta(req));
   res.cookie(SESSION_COOKIE, token, sessionCookieOptions());
   res.json({ ok: true, jobberAccountId: org.jobberAccountId, email: org.email, name: org.name });
+});
+
+// ---------- POST /auth/forgot-password ----------
+// Always responds 200 regardless of whether the email exists — no enumeration.
+router.post("/forgot-password", async (req: Request, res: Response) => {
+  const { email } = req.body as { email?: string };
+  if (typeof email === "string" && email.trim()) {
+    const normEmail = email.trim().toLowerCase();
+    const [org] = await db
+      .select()
+      .from(jobberOrgs)
+      .where(eq(jobberOrgs.email, normEmail))
+      .limit(1);
+    // Only send when the account exists and actually has a password to reset.
+    if (org?.email && org.passwordHash) {
+      try {
+        const token = await createResetToken(org.jobberAccountId);
+        const base = process.env.APP_BASE_URL ?? process.env.FRONTEND_URL ?? "http://localhost:3000";
+        const url = `${base}/#/reset?token=${encodeURIComponent(token)}`;
+        await sendPasswordResetEmail(org.email, url);
+      } catch (err) {
+        console.error("[forgot-password] failed to issue/send reset:", String(err));
+      }
+    }
+  }
+  res.json({ ok: true });
+});
+
+// ---------- POST /auth/reset-password ----------
+router.post("/reset-password", async (req: Request, res: Response) => {
+  const { token, password } = req.body as { token?: string; password?: string };
+  if (typeof token !== "string" || !token) {
+    res.status(400).json({ error: "Missing reset token" });
+    return;
+  }
+  if (!isValidPassword(password)) {
+    res.status(400).json({ error: "Password must be 8–200 characters" });
+    return;
+  }
+
+  const jobberAccountId = await consumeResetToken(token);
+  if (!jobberAccountId) {
+    res.status(400).json({ error: "This reset link is invalid or has expired." });
+    return;
+  }
+
+  await db
+    .update(jobberOrgs)
+    .set({ passwordHash: await hashPassword(password), passwordSetAt: new Date(), updatedAt: new Date() })
+    .where(eq(jobberOrgs.jobberAccountId, jobberAccountId));
+
+  // Invalidate every existing session, then log in this device fresh.
+  await destroyAllSessions(jobberAccountId);
+  const org = await getOrg(jobberAccountId);
+  const { token: sessionToken } = await createSession(jobberAccountId, reqMeta(req));
+  res.cookie(SESSION_COOKIE, sessionToken, sessionCookieOptions());
+  res.json({ ok: true, jobberAccountId, email: org?.email, name: org?.name });
 });
 
 // ---------- POST /auth/logout ----------

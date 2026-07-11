@@ -69,6 +69,17 @@ const loginLimiter = rateLimit({
 });
 app.use("/auth/login", loginLimiter);
 
+// Reset endpoints — throttle to prevent email bombing / token probing per IP.
+const resetLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  limit: 10,                 // max 10 reset requests per 15 min per IP
+  standardHeaders: "draft-7",
+  legacyHeaders: false,
+  message: { error: "Too many password reset requests. Please wait a while." },
+});
+app.use("/auth/forgot-password", resetLimiter);
+app.use("/auth/reset-password", resetLimiter);
+
 app.get("/health", (_req, res) => {
   res.json({ status: "ok" });
 });
