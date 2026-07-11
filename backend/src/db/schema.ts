@@ -9,6 +9,9 @@ export const jobberOrgs = pgTable("jobber_orgs", {
   name: text("name"),
   assetIdentifierField: text("asset_identifier_field"),
   assetIdentifierFieldId: text("asset_identifier_field_id"),
+  email: text("email").unique(),
+  passwordHash: text("password_hash"),
+  passwordSetAt: timestamp("password_set_at", { withTimezone: true }),
   pinHash: text("pin_hash"),
   pinSetAt: timestamp("pin_set_at", { withTimezone: true }),
   pinFailedAttempts: integer("pin_failed_attempts").notNull().default(0),
@@ -109,9 +112,31 @@ export const loginEvents = pgTable("login_events", {
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
+export const sessions = pgTable("sessions", {
+  id: text("id").primaryKey(),
+  tokenHash: text("token_hash").notNull().unique(),
+  jobberAccountId: text("jobber_account_id").notNull(),
+  userAgent: text("user_agent"),
+  ip: text("ip"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  lastUsedAt: timestamp("last_used_at", { withTimezone: true }).notNull().defaultNow(),
+  expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+});
+
+export const passwordResetTokens = pgTable("password_reset_tokens", {
+  id: text("id").primaryKey(),
+  jobberAccountId: text("jobber_account_id").notNull(),
+  tokenHash: text("token_hash").notNull().unique(),
+  expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+  usedAt: timestamp("used_at", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
 export type JobberOrg = typeof jobberOrgs.$inferSelect;
 export type NewJobberOrg = typeof jobberOrgs.$inferInsert;
 export type Client = typeof clients.$inferSelect;
 export type Job = typeof jobs.$inferSelect;
 export type JobCustomField = typeof jobCustomFields.$inferSelect;
 export type LoginEvent = typeof loginEvents.$inferSelect;
+export type Session = typeof sessions.$inferSelect;
+export type PasswordResetToken = typeof passwordResetTokens.$inferSelect;

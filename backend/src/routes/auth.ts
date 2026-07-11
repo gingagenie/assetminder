@@ -217,7 +217,10 @@ router.get("/callback", async (req: Request, res: Response) => {
       Authorization: `Bearer ${tokens.access_token}`,
       "X-JOBBER-GRAPHQL-VERSION": JOBBER_API_VERSION,
     },
-    body: JSON.stringify({ query: "{ account { id name } }" }),
+    body: JSON.stringify({
+      query:
+        "{ account { id name } users(first: 10) { nodes { isCurrentUser email { raw } } } }",
+    }),
   });
 
   const meBody = await meRes.text();
@@ -233,7 +236,10 @@ router.get("/callback", async (req: Request, res: Response) => {
   }
 
   const meJson = JSON.parse(meBody) as {
-    data?: { account?: { id: string; name?: string } };
+    data?: {
+      account?: { id: string; name?: string };
+      users?: { nodes?: Array<{ isCurrentUser?: boolean; email?: { raw?: string } }> };
+    };
     errors?: unknown[];
   };
 
@@ -246,9 +252,14 @@ router.get("/callback", async (req: Request, res: Response) => {
     return;
   }
 
-  const meData = meJson as { data: { account: { id: string; name?: string } } };
-  const jobberAccountId = meData.data.account.id;
-  const orgName = meData.data.account.name ?? null;
+  const jobberAccountId = meJson.data.account.id;
+  const orgName = meJson.data.account.name ?? null;
+  // Email of the user who authorized this token — selected by isCurrentUser, not
+  // array position (multi-user accounts return many users). Used to pre-fill the
+  // set-password screen and as the login identity.
+  const ownerEmail =
+    meJson.data.users?.nodes?.find((n) => n.isCurrentUser)?.email?.raw?.trim().toLowerCase() ??
+    null;
 
   // Upsert: update tokens if this org already exists, insert if new
   const existing = await db
@@ -262,6 +273,8 @@ router.get("/callback", async (req: Request, res: Response) => {
       .update(jobberOrgs)
       .set({
         name: orgName,
+        // Backfill only when missing — email is the login identity and unique.
+        email: existing[0].email ?? ownerEmail,
         accessToken: tokens.access_token,
         refreshToken: tokens.refresh_token,
         expiresAt,
@@ -274,6 +287,7 @@ router.get("/callback", async (req: Request, res: Response) => {
       id: crypto.randomUUID(),
       jobberAccountId,
       name: orgName,
+      email: ownerEmail,
       accessToken: tokens.access_token,
       refreshToken: tokens.refresh_token,
       expiresAt,

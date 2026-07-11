@@ -1,6 +1,7 @@
 import "dotenv/config";
 import express, { Request, Response, NextFunction } from "express";
 import cors from "cors";
+import cookieParser from "cookie-parser";
 import { rateLimit } from "express-rate-limit";
 import { eq } from "drizzle-orm";
 import authRouter from "./routes/auth";
@@ -9,6 +10,8 @@ import webhookRouter from "./routes/webhooks";
 import billingRouter from "./routes/billing";
 import adminRouter from "./routes/admin";
 import pinRouter from "./routes/pin";
+import accountAuthRouter from "./routes/accountAuth";
+import { resolveAuth, requireAuth } from "./middleware/auth";
 import { db } from "./db/client";
 import { jobberOrgs } from "./db/schema";
 
@@ -30,6 +33,11 @@ app.use("/api/webhooks/jobber", express.raw({ type: "application/json" }));
 app.use("/api/billing/webhook", express.raw({ type: "application/json" }));
 
 app.use(express.json());
+app.use(cookieParser());
+
+// Resolve auth for every /api route: sets req.sessionAccountId (from the session
+// cookie) and req.accountId (session, falling back to the legacy param). Permissive.
+app.use("/api", resolveAuth);
 
 // Rate limiting — sync is the most expensive operation
 const syncLimiter = rateLimit({
@@ -51,11 +59,22 @@ const pinLimiter = rateLimit({
 });
 app.use("/api/pin", pinLimiter);
 
+// Login is a credential-guessing target — throttle per IP.
+const loginLimiter = rateLimit({
+  windowMs: 60 * 1000, // 1 minute
+  limit: 10,           // max 10 login attempts per minute per IP
+  standardHeaders: "draft-7",
+  legacyHeaders: false,
+  message: { error: "Too many login attempts. Please wait a moment." },
+});
+app.use("/auth/login", loginLimiter);
+
 app.get("/health", (_req, res) => {
   res.json({ status: "ok" });
 });
 
 app.use("/auth/jobber", authRouter);
+app.use("/auth", accountAuthRouter); // /auth/login, /auth/logout, /auth/session, /auth/set-password
 app.use("/api/webhooks", webhookRouter); // must be before /api to avoid express.json() conflict
 app.use("/api/billing", billingRouter);  // not behind subscription check
 app.use("/api/admin", adminRouter);      // key-protected, not behind subscription check
@@ -66,9 +85,7 @@ async function requireSubscription(req: Request, res: Response, next: NextFuncti
   // Allow disconnect regardless of subscription status
   if (req.path === "/disconnect") return next();
 
-  const jobberAccountId =
-    (req.query.jobberAccountId as string | undefined) ??
-    (req.body as { jobberAccountId?: string } | undefined)?.jobberAccountId;
+  const jobberAccountId = req.accountId;
 
   if (!jobberAccountId) return next(); // let the route handler deal with missing auth
 
@@ -103,7 +120,7 @@ async function requireSubscription(req: Request, res: Response, next: NextFuncti
   res.status(402).json({ error: "subscription_required" });
 }
 
-app.use("/api", requireSubscription, apiRouter);
+app.use("/api", requireAuth, requireSubscription, apiRouter);
 
 app.listen(PORT, () => {
   console.log(`AssetMinder backend running on port ${PORT}`);
