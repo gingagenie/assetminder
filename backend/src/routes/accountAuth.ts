@@ -31,26 +31,30 @@ async function getOrg(jobberAccountId: string) {
 
 /** Clear-cookie must mirror the set-cookie attributes (minus maxAge) or the browser won't remove it. */
 function clearSessionCookie(res: Response) {
-  const { httpOnly, secure, sameSite, path } = sessionCookieOptions();
-  res.clearCookie(SESSION_COOKIE, { httpOnly, secure, sameSite, path });
+  const { httpOnly, secure, sameSite, path, domain } = sessionCookieOptions();
+  res.clearCookie(SESSION_COOKIE, { httpOnly, secure, sameSite, path, domain });
 }
 
 // ---------- POST /auth/set-password ----------
-// First-time setup immediately after OAuth. Allowed only when no password exists
-// yet; establishes a session on success so the user is logged in on this device.
+// First-time setup during onboarding. Requires the session issued by the OAuth
+// callback (which only issues one when the account has no password yet), so the
+// account is derived from the cookie — never from a client-supplied id. Allowed
+// only when no password exists. The OAuth session stays active on success.
 router.post("/set-password", async (req: Request, res: Response) => {
-  const { jobberAccountId, password } = req.body as {
-    jobberAccountId?: string;
-    password?: string;
-  };
-  if (!jobberAccountId) {
-    res.status(400).json({ error: "Missing required body param: jobberAccountId" });
+  const { password } = req.body as { password?: string };
+
+  const cookieToken = req.cookies?.[SESSION_COOKIE] as string | undefined;
+  const session = cookieToken ? await resolveSession(cookieToken) : null;
+  if (!session) {
+    res.status(401).json({ error: "Not authenticated. Reconnect with Jobber to set a password." });
     return;
   }
   if (!isValidPassword(password)) {
     res.status(400).json({ error: "Password must be 8–200 characters" });
     return;
   }
+
+  const jobberAccountId = session.jobberAccountId;
   const org = await getOrg(jobberAccountId);
   if (!org) {
     res.status(404).json({ error: "Account not found" });
@@ -66,8 +70,6 @@ router.post("/set-password", async (req: Request, res: Response) => {
     .set({ passwordHash: await hashPassword(password), passwordSetAt: new Date(), updatedAt: new Date() })
     .where(eq(jobberOrgs.jobberAccountId, jobberAccountId));
 
-  const { token } = await createSession(jobberAccountId, reqMeta(req));
-  res.cookie(SESSION_COOKIE, token, sessionCookieOptions());
   res.json({ ok: true, jobberAccountId, email: org.email, name: org.name });
 });
 

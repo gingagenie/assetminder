@@ -13,13 +13,25 @@ function hashToken(token: string): string {
   return crypto.createHash("sha256").update(token).digest("hex");
 }
 
-/** Cookie attributes. Cross-site in prod (minderapps.io → onrender.com) needs SameSite=None; Secure. */
+/**
+ * Cookie attributes, env-driven so the same code works first-party or cross-site.
+ * Prod (backend on api.minderapps.io, frontend on www.minderapps.io): set
+ * COOKIE_DOMAIN=.minderapps.io and COOKIE_SAMESITE=lax → a first-party cookie
+ * that Safari/Chrome/Firefox all keep (no third-party-cookie dependency).
+ * Fallback for a cross-domain backend: COOKIE_SAMESITE=none (implies Secure).
+ * Dev (unset): SameSite=Lax, no Domain, not Secure — works on http://localhost.
+ */
 export function sessionCookieOptions(): CookieOptions {
   const prod = process.env.NODE_ENV === "production";
+  const raw = (process.env.COOKIE_SAMESITE ?? "lax").toLowerCase();
+  const sameSite: "lax" | "strict" | "none" =
+    raw === "none" || raw === "strict" ? raw : "lax";
   return {
     httpOnly: true,
-    secure: prod,
-    sameSite: prod ? "none" : "lax",
+    // SameSite=None mandates Secure; also always Secure in production.
+    secure: prod || sameSite === "none",
+    sameSite,
+    domain: process.env.COOKIE_DOMAIN || undefined,
     path: "/",
     maxAge: SESSION_TTL_MS,
   };

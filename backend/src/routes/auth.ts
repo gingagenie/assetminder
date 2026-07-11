@@ -3,6 +3,7 @@ import { db } from "../db/client";
 import { jobberOrgs, loginEvents } from "../db/schema";
 import { eq } from "drizzle-orm";
 import crypto from "crypto";
+import { createSession, SESSION_COOKIE, sessionCookieOptions } from "../lib/session";
 
 const JOBBER_AUTH_URL = "https://api.getjobber.com/api/oauth/authorize";
 const JOBBER_TOKEN_URL = "https://api.getjobber.com/api/oauth/token";
@@ -10,28 +11,6 @@ const JOBBER_API_VERSION = "2025-04-16";
 const SCOPES = "read_clients read_jobs write_jobs read_custom_field_configurations write_custom_field_configurations read_users";
 
 const router = Router();
-
-// --- OAuth state: HMAC-signed so the intent ("pin_reset") can't be tampered ---
-// Integrity only; this is not session-bound CSRF protection (the app has no
-// session store). A pin_reset only clears the PIN of the account that just
-// authenticated, so the authenticated owner is always the one resetting.
-function signState(purpose: string): string {
-  const secret = process.env.JOBBER_CLIENT_SECRET ?? "";
-  const sig = crypto.createHmac("sha256", secret).update(purpose).digest("hex");
-  return `${purpose}.${sig}`;
-}
-
-function verifyState(state: unknown): string | null {
-  if (typeof state !== "string" || !state.includes(".")) return null;
-  const idx = state.lastIndexOf(".");
-  const purpose = state.slice(0, idx);
-  const sig = state.slice(idx + 1);
-  const expected = crypto.createHmac("sha256", process.env.JOBBER_CLIENT_SECRET ?? "").update(purpose).digest("hex");
-  const a = Buffer.from(sig, "hex");
-  const b = Buffer.from(expected, "hex");
-  if (a.length !== b.length || !crypto.timingSafeEqual(a, b)) return null;
-  return purpose;
-}
 
 const CUSTOM_FIELD_CONFIGS_QUERY = `
   {
@@ -163,11 +142,6 @@ router.get("/connect", (req: Request, res: Response) => {
     response_type: "code",
     scope: SCOPES,
   });
-
-  // Forgot-PIN flow re-authenticates via Jobber to verify identity before reset.
-  if (req.query.state === "pin_reset") {
-    params.set("state", signState("pin_reset"));
-  }
 
   res.redirect(`${JOBBER_AUTH_URL}?${params.toString()}`);
 });
@@ -312,20 +286,28 @@ router.get("/callback", async (req: Request, res: Response) => {
     }
   }
 
-  // Forgot-PIN: identity is now verified via Jobber, so clear the PIN and send
-  // the user to set a new one. The hash is wiped here; /api/pin/set then allows
-  // a fresh PIN because pinHash is null.
-  const isPinReset = verifyState(req.query.state) === "pin_reset";
-  if (isPinReset) {
-    await db
-      .update(jobberOrgs)
-      .set({ pinHash: null, pinSetAt: null, pinFailedAttempts: 0, pinLockedUntil: null, updatedAt: new Date() })
-      .where(eq(jobberOrgs.jobberAccountId, jobberAccountId));
+  // OAuth is onboarding, not authentication. If the account already has a
+  // password, the user must authenticate with it — do NOT issue a session here
+  // (otherwise "Connect with Jobber" would be a password bypass on any device
+  // with a live Jobber session). Redirect to login with the email pre-filled.
+  const hasPassword = existing.length > 0 && Boolean(existing[0].passwordHash);
+  const accountEmail = (existing.length > 0 ? existing[0].email ?? ownerEmail : ownerEmail) ?? "";
+  const frontendBase = process.env.FRONTEND_URL ?? "http://localhost:3000";
+
+  if (hasPassword) {
+    res.redirect(`${frontendBase}/#/login?email=${encodeURIComponent(accountEmail)}`);
+    return;
   }
 
-  const frontendBase = process.env.FRONTEND_URL ?? "http://localhost:3000";
-  const resetSuffix = isPinReset ? "&reset=1" : "";
-  res.redirect(`${frontendBase}/#/oauth/callback?jobberAccountId=${encodeURIComponent(jobberAccountId)}${resetSuffix}`);
+  // No password yet: this is first-time onboarding. Establish a session so the
+  // user can set a password (email pre-filled via GET /auth/session), then
+  // continue to onboarding/dashboard.
+  const { token } = await createSession(jobberAccountId, {
+    userAgent: req.get("user-agent") ?? null,
+    ip: req.ip ?? null,
+  });
+  res.cookie(SESSION_COOKIE, token, sessionCookieOptions());
+  res.redirect(`${frontendBase}/#/oauth/callback`);
 });
 
 export default router;

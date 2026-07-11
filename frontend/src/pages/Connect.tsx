@@ -1,3 +1,4 @@
+import { Link } from "react-router-dom";
 import { API } from "@/lib/api";
 
 export default function Connect() {
@@ -19,6 +20,9 @@ export default function Connect() {
         >
           Connect to Jobber
         </button>
+        <Link to="/login" className="text-sm text-slate-500 hover:text-slate-700">
+          Already set up? Log in
+        </Link>
       </div>
     </div>
   );

@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import { API } from "@/lib/api";
+import { clearCachedAuth } from "@/lib/authStatus";
 import { BillingModal } from "@/components/BillingModal";
 import { useNavigate, useLocation } from "react-router-dom";
 import { ChevronDown, RefreshCw, User } from "lucide-react";
@@ -64,12 +65,16 @@ export function Nav({ left, right: _right, onSyncComplete }: NavProps) {
     }
   }
 
-  function handleLogout() {
-    // Lock, don't forget: remember the account so the PIN screen knows whose
-    // PIN to check, but drop the active session.
-    if (jobberAccountId) localStorage.setItem("lockedAccountId", jobberAccountId);
+  async function handleLogout() {
+    try {
+      await fetch(`${API}/auth/logout`, { method: "POST" });
+    } catch {
+      /* clear local state regardless */
+    }
+    clearCachedAuth();
     localStorage.removeItem("jobberAccountId");
-    navigate("/lock");
+    localStorage.removeItem("lockedAccountId");
+    navigate("/login");
   }
 
   async function handleSync() {

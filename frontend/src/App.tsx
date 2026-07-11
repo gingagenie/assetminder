@@ -1,9 +1,13 @@
 import { useEffect, useState } from "react";
-import { HashRouter, Routes, Route, Navigate, useLocation } from "react-router-dom";
-import { getCachedPinSet, fetchPinSet } from "@/lib/pinStatus";
+import { HashRouter, Routes, Route, Navigate } from "react-router-dom";
+import { getCachedAuth, fetchAuth } from "@/lib/authStatus";
 import Landing from "@/pages/Landing";
 import OAuthCallback from "@/pages/OAuthCallback";
 import Connect from "@/pages/Connect";
+import Login from "@/pages/Login";
+import SetPassword from "@/pages/SetPassword";
+import ForgotPassword from "@/pages/ForgotPassword";
+import ResetPassword from "@/pages/ResetPassword";
 import Onboarding from "@/pages/Onboarding";
 import Dashboard from "@/pages/Dashboard";
 import AssetDetail from "@/pages/AssetDetail";
@@ -14,43 +18,39 @@ import Privacy from "@/pages/Privacy";
 import Help from "@/pages/Help";
 import Admin from "@/pages/Admin";
 import UnassignedJobs from "@/pages/UnassignedJobs";
-import Lock from "@/pages/Lock";
-import SetPin from "@/pages/SetPin";
 import Disconnected from "@/pages/Disconnected";
 import ClientAssets from "@/pages/ClientAssets";
 import { SubscriptionWall } from "@/components/SubscriptionWall";
 
+type Gate = "loading" | "authed" | "nopassword" | "anon";
+
+function gateFromAuth(a: ReturnType<typeof getCachedAuth>): Gate {
+  if (!a) return "loading";
+  if (!a.authenticated || !a.jobberAccountId) return "anon";
+  return a.passwordSet ? "authed" : "nopassword";
+}
+
 function RequireAuth({ children }: { children: React.ReactNode }) {
-  const location = useLocation();
-  const id = localStorage.getItem("jobberAccountId");
-  const [pinSet, setPinSet] = useState<boolean | null>(() => (id ? getCachedPinSet(id) : null));
+  const [gate, setGate] = useState<Gate>(() => gateFromAuth(getCachedAuth()));
 
   useEffect(() => {
-    if (!id) return;
-    const cached = getCachedPinSet(id);
-    if (cached !== null) { setPinSet(cached); return; }
     let cancelled = false;
-    fetchPinSet(id).then((v) => { if (!cancelled) setPinSet(v); });
+    fetchAuth().then((a) => {
+      if (cancelled) return;
+      if (a.authenticated && a.jobberAccountId) {
+        localStorage.setItem("jobberAccountId", a.jobberAccountId);
+      } else {
+        localStorage.removeItem("jobberAccountId");
+      }
+      setGate(gateFromAuth(a));
+    });
     return () => { cancelled = true; };
-  }, [id]);
+  }, []);
 
-  if (!id) {
-    // A locked session is remembered but not active — send to the PIN lock screen
-    // rather than the public landing page.
-    if (localStorage.getItem("lockedAccountId")) return <Navigate to="/lock" replace />;
-    return <Navigate to="/" replace />;
-  }
-
-  // Never gate the set-pin page itself — that would loop and prevent it rendering.
-  if (location.pathname === "/set-pin") return <>{children}</>;
-
-  // Always read the live cache so a just-set PIN (setCachedPinSet called in SetPin
-  // before navigate()) is visible in this render cycle, not just the next one.
-  const livePin = getCachedPinSet(id);
-  const effectivePin = livePin !== null ? livePin : pinSet;
-
-  if (effectivePin === null) return null; // still waiting for API
-  if (!effectivePin) return <Navigate to="/set-pin" replace state={{ next: location.pathname }} />;
+  if (gate === "loading") return null;
+  if (gate === "anon") return <Navigate to="/login" replace />;
+  // An onboarding session exists but no password set yet — finish onboarding.
+  if (gate === "nopassword") return <Navigate to="/set-password" replace />;
   return <>{children}</>;
 }
 
@@ -59,7 +59,6 @@ export default function App() {
 
   useEffect(() => {
     function handleSubscriptionRequired() {
-      // Only show the wall if the user is logged in
       if (localStorage.getItem("jobberAccountId")) {
         setSubscriptionRequired(true);
       }
@@ -75,8 +74,10 @@ export default function App() {
           <Route path="/" element={<Landing />} />
           <Route path="/oauth/callback" element={<OAuthCallback />} />
           <Route path="/connect" element={<Connect />} />
-          <Route path="/lock" element={<Lock />} />
-          <Route path="/set-pin" element={<RequireAuth><SetPin /></RequireAuth>} />
+          <Route path="/login" element={<Login />} />
+          <Route path="/set-password" element={<SetPassword />} />
+          <Route path="/forgot-password" element={<ForgotPassword />} />
+          <Route path="/reset" element={<ResetPassword />} />
           <Route path="/onboarding" element={<RequireAuth><Onboarding /></RequireAuth>} />
           <Route path="/dashboard" element={<RequireAuth><Dashboard /></RequireAuth>} />
           <Route path="/clients/:clientId" element={<RequireAuth><ClientDetail /></RequireAuth>} />

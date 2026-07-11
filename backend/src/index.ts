@@ -22,6 +22,7 @@ const allowedOrigins = [
   "http://localhost:3000",
   "https://minderapps.io",
   "https://www.minderapps.io",
+  "https://api.minderapps.io",
   process.env.FRONTEND_URL,
 ].filter(Boolean) as string[];
 
