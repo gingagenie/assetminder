@@ -7,19 +7,17 @@ declare global {
     interface Request {
       /** Account id derived from a valid session cookie (undefined if none). */
       sessionAccountId?: string;
-      /** Resolved account id for this request: session cookie, else the legacy param. */
+      /** Resolved account id for this request: session cookie only. */
       accountId?: string;
     }
   }
 }
 
 /**
- * Populate req.sessionAccountId (from the session cookie) and req.accountId
- * (session, falling back to the legacy jobberAccountId query/body param).
- *
- * PERMISSIVE by design: never rejects. This lets the cookie switch roll out
- * while old param-based clients keep working. Enforcement is added by
- * requireAuth once AUTH_ENFORCE=true.
+ * Populate req.sessionAccountId and req.accountId from the session cookie.
+ * The legacy jobberAccountId query/body param is no longer trusted — identity
+ * is session-derived only. requireAuth rejects requests with no session when
+ * AUTH_ENFORCE=true.
  */
 export async function resolveAuth(req: Request, _res: Response, next: NextFunction) {
   try {
@@ -29,12 +27,9 @@ export async function resolveAuth(req: Request, _res: Response, next: NextFuncti
       if (s) req.sessionAccountId = s.jobberAccountId;
     }
   } catch {
-    // fall through to the legacy param
+    // cookie unreadable — req.accountId stays undefined
   }
-  req.accountId =
-    req.sessionAccountId ??
-    (req.query.jobberAccountId as string | undefined) ??
-    (req.body as { jobberAccountId?: string } | undefined)?.jobberAccountId;
+  req.accountId = req.sessionAccountId;
   next();
 }
 
