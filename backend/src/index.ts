@@ -9,7 +9,6 @@ import apiRouter from "./routes/api";
 import webhookRouter from "./routes/webhooks";
 import billingRouter from "./routes/billing";
 import adminRouter from "./routes/admin";
-import pinRouter from "./routes/pin";
 import accountAuthRouter from "./routes/accountAuth";
 import { resolveAuth, requireAuth } from "./middleware/auth";
 import { db } from "./db/client";
@@ -36,8 +35,7 @@ app.use("/api/billing/webhook", express.raw({ type: "application/json" }));
 app.use(express.json());
 app.use(cookieParser());
 
-// Resolve auth for every /api route: sets req.sessionAccountId (from the session
-// cookie) and req.accountId (session, falling back to the legacy param). Permissive.
+// Resolve auth for every /api route: sets req.sessionAccountId and req.accountId from the session cookie.
 app.use("/api", resolveAuth);
 
 // Rate limiting — sync is the most expensive operation
@@ -49,16 +47,6 @@ const syncLimiter = rateLimit({
   message: { error: "Too many sync requests. Please wait before syncing again." },
 });
 app.use("/api/sync", syncLimiter);
-
-// PIN endpoints are rate-limited per IP (DB-backed per-account lockout layers on top)
-const pinLimiter = rateLimit({
-  windowMs: 60 * 1000, // 1 minute
-  limit: 10,           // max 10 PIN requests per minute per IP
-  standardHeaders: "draft-7",
-  legacyHeaders: false,
-  message: { error: "Too many PIN attempts. Please wait a moment." },
-});
-app.use("/api/pin", pinLimiter);
 
 // Login is a credential-guessing target — throttle per IP.
 const loginLimiter = rateLimit({
@@ -90,7 +78,6 @@ app.use("/auth", accountAuthRouter); // /auth/login, /auth/logout, /auth/session
 app.use("/api/webhooks", webhookRouter); // must be before /api to avoid express.json() conflict
 app.use("/api/billing", billingRouter);  // not behind subscription check
 app.use("/api/admin", adminRouter);      // key-protected, not behind subscription check
-app.use("/api/pin", pinRouter);          // not behind subscription check — unlock must work pre-paywall
 
 // Subscription middleware — checks trial/active/expired for all /api/* routes
 async function requireSubscription(req: Request, res: Response, next: NextFunction) {
