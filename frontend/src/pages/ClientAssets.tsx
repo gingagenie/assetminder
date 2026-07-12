@@ -52,7 +52,7 @@ export default function ClientAssets() {
   async function load() {
     if (!jobberAccountId || !clientId) return;
     const res = await fetch(
-      `${API}/api/assets?jobberAccountId=${encodeURIComponent(jobberAccountId)}&clientId=${encodeURIComponent(clientId)}`
+      `${API}/api/assets?clientId=${encodeURIComponent(clientId)}`
     );
     const data = (await res.json()) as { assets: Asset[] };
     setAssetList(data.assets.sort((a, b) => a.displayName.localeCompare(b.displayName)));
@@ -80,7 +80,7 @@ export default function ClientAssets() {
       const res = await fetch(`${API}/api/assets/${assetId}/rename`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ jobberAccountId, displayName: editName.trim() }),
+        body: JSON.stringify({ displayName: editName.trim() }),
       });
       const data = (await res.json()) as { ok: boolean; displayName?: string };
       if (data.ok) {
@@ -98,7 +98,7 @@ export default function ClientAssets() {
     setDeletingId(asset.id);
     try {
       await fetch(
-        `${API}/api/assets/${asset.id}?jobberAccountId=${encodeURIComponent(jobberAccountId)}`,
+        `${API}/api/assets/${asset.id}`,
         { method: "DELETE" }
       );
       await load();
@@ -117,7 +117,7 @@ export default function ClientAssets() {
       const res = await fetch(`${API}/api/assets/${sourceId}/merge`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ jobberAccountId, targetAssetId: mergeTargetId }),
+        body: JSON.stringify({ targetAssetId: mergeTargetId }),
       });
       const data = (await res.json()) as { ok: boolean };
       if (data.ok) {

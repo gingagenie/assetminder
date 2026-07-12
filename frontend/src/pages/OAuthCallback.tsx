@@ -36,18 +36,14 @@ export default function OAuthCallback() {
         // (which shows the SubscriptionWall); otherwise onboarding vs dashboard
         // depends on whether the asset field mapping is configured.
         let destination = "/dashboard";
-        const billingRes = await fetch(
-          `${API}/api/billing/status?jobberAccountId=${encodeURIComponent(jobberAccountId)}`
-        );
+        const billingRes = await fetch(`${API}/api/billing/status`);
         let trialExpired = false;
         if (billingRes.ok) {
           const billing = (await billingRes.json()) as { subscriptionStatus: string; trialExpired: boolean };
           trialExpired = billing.trialExpired || billing.subscriptionStatus === "expired";
         }
         if (!trialExpired) {
-          const res = await fetch(
-            `${API}/api/orgs/field-mapping?jobberAccountId=${encodeURIComponent(jobberAccountId)}`
-          );
+          const res = await fetch(`${API}/api/orgs/field-mapping`);
           if (res.ok) {
             const data = (await res.json()) as { assetIdentifierField: string | null };
             destination = data.assetIdentifierField ? "/dashboard" : "/onboarding";

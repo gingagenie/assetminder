@@ -4,17 +4,15 @@ import { API } from "@/lib/api";
 export function SubscriptionWall() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const jobberAccountId = localStorage.getItem("jobberAccountId");
 
   async function handleSubscribe() {
-    if (!jobberAccountId) return;
     setLoading(true);
     setError(null);
     try {
       const res = await fetch(`${API}/api/billing/create-checkout-session`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ jobberAccountId }),
+        body: JSON.stringify({}),
       });
       const data = (await res.json()) as { url?: string; error?: string };
       if (!res.ok || !data.url) {

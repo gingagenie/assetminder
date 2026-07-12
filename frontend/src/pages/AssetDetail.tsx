@@ -177,13 +177,13 @@ export default function AssetDetail() {
       await fetch(`${API}/api/assets/${asset.id}/interval`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ intervalDays: days, jobberAccountId }),
+        body: JSON.stringify({ intervalDays: days }),
       });
 
       await fetch(`${API}/api/calculate-due-dates`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ jobberAccountId }),
+        body: JSON.stringify({}),
       });
 
       const res = await fetch(`${API}/api/assets/${asset.id}/jobs`);
@@ -204,7 +204,7 @@ export default function AssetDetail() {
     if (!window.confirm(`Delete "${asset.displayName}"? This removes it from AssetMinder only. Jobs in Jobber are not affected.`)) return;
     setDeleting(true);
     try {
-      await fetch(`${API}/api/assets/${asset.id}?jobberAccountId=${encodeURIComponent(jobberAccountId)}`, { method: "DELETE" });
+      await fetch(`${API}/api/assets/${asset.id}`, { method: "DELETE" });
       navigate(fromClient ? `/clients/${fromClient.clientId}` : "/dashboard");
     } catch {
       setDeleting(false);
@@ -219,7 +219,7 @@ export default function AssetDetail() {
       const res = await fetch(`${API}/api/assets/${asset.id}/merge`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ jobberAccountId }),
+        body: JSON.stringify({}),
       });
       const data = (await res.json()) as { ok: boolean; mergedIntoId?: string };
       if (data.ok && data.mergedIntoId) {
@@ -237,7 +237,7 @@ export default function AssetDetail() {
       await fetch(`${API}/api/assets/${asset.id}/dismiss-flag`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ jobberAccountId }),
+        body: JSON.stringify({}),
       });
       setAsset((prev) => prev ? { ...prev, similarAssetId: null, similarAssetName: null } : prev);
     } finally {

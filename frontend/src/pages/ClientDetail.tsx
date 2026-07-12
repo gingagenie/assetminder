@@ -86,9 +86,9 @@ export default function ClientDetail() {
   async function loadData() {
     if (!jobberAccountId || !clientId) return;
     const [clientData, assetData, unassignedData] = await Promise.all([
-      fetch(`${API}/api/clients?jobberAccountId=${encodeURIComponent(jobberAccountId)}`).then((r) => r.json()),
-      fetch(`${API}/api/assets?jobberAccountId=${encodeURIComponent(jobberAccountId)}`).then((r) => r.json()),
-      fetch(`${API}/api/clients/${clientId}/unassigned-jobs?jobberAccountId=${encodeURIComponent(jobberAccountId)}`).then((r) => r.json()),
+      fetch(`${API}/api/clients`).then((r) => r.json()),
+      fetch(`${API}/api/assets`).then((r) => r.json()),
+      fetch(`${API}/api/clients/${clientId}/unassigned-jobs`).then((r) => r.json()),
     ]);
     const found = (clientData.clients as Client[]).find((c) => c.id === clientId) ?? null;
     setClient(found);
@@ -108,7 +108,7 @@ export default function ClientDetail() {
       const res = await fetch(`${API}/api/jobs/${jobId}/set-asset-id`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ assetIdentifier: value, jobberAccountId }),
+        body: JSON.stringify({ assetIdentifier: value }),
       });
       const data = await res.json() as { ok?: boolean; error?: string };
       if (!res.ok || !data.ok) {
@@ -119,7 +119,7 @@ export default function ClientDetail() {
       setUnassignedJobs((prev) => prev.filter((j) => j.id !== jobId));
       setAssetIdInputs((prev) => { const n = { ...prev }; delete n[jobId]; return n; });
       // Reload assets so the new/updated asset appears
-      const assetData = await fetch(`${API}/api/assets?jobberAccountId=${encodeURIComponent(jobberAccountId)}`).then((r) => r.json());
+      const assetData = await fetch(`${API}/api/assets`).then((r) => r.json());
       if (client) {
         setAssets((assetData as { assets: Asset[] }).assets.filter((a) => a.jobberClientId === client.jobberClientId));
       }
@@ -145,11 +145,11 @@ export default function ClientDetail() {
       await fetch(`${API}/api/clients/${clientId}/interval`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ intervalDays: days, jobberAccountId }),
+        body: JSON.stringify({ intervalDays: days }),
       });
 
       // Refresh assets so due dates and statuses update
-      const assetData = await fetch(`${API}/api/assets?jobberAccountId=${encodeURIComponent(jobberAccountId)}`).then((r) => r.json());
+      const assetData = await fetch(`${API}/api/assets`).then((r) => r.json());
       const found = client;
       if (found) {
         setAssets((assetData.assets as Asset[]).filter((a) => a.jobberClientId === found.jobberClientId));

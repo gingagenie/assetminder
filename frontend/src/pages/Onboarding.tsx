@@ -30,7 +30,7 @@ export default function Onboarding() {
     (async () => {
       try {
         // Check subscription before touching any protected API
-        const billingRes = await fetch(`${API}/api/billing/status?jobberAccountId=${encodeURIComponent(jobberAccountId)}`);
+        const billingRes = await fetch(`${API}/api/billing/status`);
         if (billingRes.ok) {
           const billing = (await billingRes.json()) as { subscriptionStatus: string; trialExpired: boolean };
           if (billing.trialExpired || billing.subscriptionStatus === "expired") {
@@ -40,7 +40,7 @@ export default function Onboarding() {
           }
         }
 
-        const r = await fetch(`${API}/api/custom-fields?jobberAccountId=${encodeURIComponent(jobberAccountId)}`);
+        const r = await fetch(`${API}/api/custom-fields`);
         if (r.status === 402) {
           setSubscriptionRequired(true);
           return;
@@ -71,7 +71,7 @@ export default function Onboarding() {
       const res = await fetch(`${API}/api/orgs/setup-asset-field`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ jobberAccountId }),
+        body: JSON.stringify({}),
       });
       const data = (await res.json()) as { ok?: boolean; error?: string };
       if (!res.ok || !data.ok) throw new Error(data.error ?? "Auto-create failed");
@@ -89,7 +89,7 @@ export default function Onboarding() {
       const res = await fetch(`${API}/api/orgs/field-mapping`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ jobberAccountId, fieldLabel: selectedLabel, fieldId: selectedId || undefined }),
+        body: JSON.stringify({ fieldLabel: selectedLabel, fieldId: selectedId || undefined }),
       });
       if (!res.ok) throw new Error("Failed to save mapping");
       navigate("/dashboard");

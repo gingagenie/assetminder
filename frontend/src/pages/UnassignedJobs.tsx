@@ -171,7 +171,6 @@ interface CreateAssetModalProps {
   onClose: () => void;
   selectedJobberJobIds: string[];
   clientId: string | null;
-  jobberAccountId: string;
   selectedCount: number;
   onSuccess: () => void;
   onSwitchToAdd: (assets: ExistingAsset[]) => void;
@@ -182,7 +181,6 @@ function CreateAssetModal({
   onClose,
   selectedJobberJobIds,
   clientId,
-  jobberAccountId,
   selectedCount,
   onSuccess,
   onSwitchToAdd,
@@ -209,7 +207,6 @@ function CreateAssetModal({
     if (!val.trim()) return null;
     try {
       const url = new URL(`${API || window.location.origin}/api/assets`);
-      url.searchParams.set("jobberAccountId", jobberAccountId);
       if (clientId) url.searchParams.set("clientId", clientId);
       const res = await fetch(url.toString());
       if (!res.ok) return null;
@@ -234,7 +231,7 @@ function CreateAssetModal({
       const res = await fetch(`${API || window.location.origin}/api/assets/from-jobs`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ jobberAccountId, jobberJobIds: selectedJobberJobIds, displayName: name.trim(), clientId }),
+        body: JSON.stringify({ jobberJobIds: selectedJobberJobIds, displayName: name.trim(), clientId }),
       });
       if (res.status === 409) { setError("An asset with that name already exists."); return; }
       if (!res.ok) {
@@ -319,7 +316,6 @@ interface AddToAssetModalProps {
   onClose: () => void;
   selectedJobberJobIds: string[];
   clientId: string | null;
-  jobberAccountId: string;
   onSuccess: () => void;
   onSwitchToCreate: () => void;
   prefetchedAssets?: ExistingAsset[] | null;
@@ -330,7 +326,6 @@ function AddToAssetModal({
   onClose,
   selectedJobberJobIds,
   clientId,
-  jobberAccountId,
   onSuccess,
   onSwitchToCreate,
   prefetchedAssets,
@@ -363,7 +358,6 @@ function AddToAssetModal({
     }
     setLoading(true);
     const url = new URL(`${API || window.location.origin}/api/assets`);
-    url.searchParams.set("jobberAccountId", jobberAccountId);
     if (clientId) url.searchParams.set("clientId", clientId);
     fetch(url.toString())
       .then((r) => r.json())
@@ -385,7 +379,7 @@ function AddToAssetModal({
       const res = await fetch(`${API || window.location.origin}/api/assets/${selectedAssetId}/add-jobs`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ jobberAccountId, jobberJobIds: selectedJobberJobIds }),
+        body: JSON.stringify({ jobberJobIds: selectedJobberJobIds }),
       });
       if (!res.ok) {
         const data = await res.json().catch(() => null);
@@ -508,7 +502,6 @@ export default function UnassignedJobs() {
     setError(null);
     try {
       const url = new URL(`${API || window.location.origin}/api/jobs/unassigned`);
-      url.searchParams.set("jobberAccountId", jobberAccountId);
       if (q.trim()) url.searchParams.set("search", q.trim());
       const res = await fetch(url.toString());
       if (!res.ok) { setError("Failed to load unassigned jobs."); return; }
@@ -714,7 +707,6 @@ export default function UnassignedJobs() {
         onClose={() => setCreateModalOpen(false)}
         selectedJobberJobIds={selectedJobberJobIds}
         clientId={[...selectedClientIds][0] ?? null}
-        jobberAccountId={jobberAccountId}
         selectedCount={selectedCount}
         onSuccess={() => handleModalSuccess("Asset created")}
         onSwitchToAdd={(assets) => { setAddModalPrefetch(assets); setAddModalOpen(true); }}
@@ -724,7 +716,6 @@ export default function UnassignedJobs() {
         onClose={() => setAddModalOpen(false)}
         selectedJobberJobIds={selectedJobberJobIds}
         clientId={[...selectedClientIds][0] ?? null}
-        jobberAccountId={jobberAccountId}
         onSuccess={() => handleModalSuccess("Jobs added to asset")}
         onSwitchToCreate={() => setCreateModalOpen(true)}
         prefetchedAssets={addModalPrefetch}

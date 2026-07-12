@@ -27,11 +27,11 @@ export function Nav({ left, right: _right, onSyncComplete }: NavProps) {
 
   useEffect(() => {
     if (!jobberAccountId) return;
-    fetch(`${API}/api/stats/unassigned-count?jobberAccountId=${encodeURIComponent(jobberAccountId)}`)
+    fetch(`${API}/api/stats/unassigned-count`)
       .then((r) => r.ok ? r.json() : null)
       .then((data: { count: number } | null) => { if (data) setUnassignedCount(data.count); })
       .catch(() => {});
-    fetch(`${API}/api/me?jobberAccountId=${encodeURIComponent(jobberAccountId)}`)
+    fetch(`${API}/api/me`)
       .then((r) => r.ok ? r.json() : null)
       .then((data: { accountName: string } | null) => { if (data) setAccountName(data.accountName); })
       .catch(() => {});
@@ -59,7 +59,7 @@ export function Nav({ left, right: _right, onSyncComplete }: NavProps) {
     if (!window.confirm("Disconnecting will cancel your AssetMinder subscription immediately and permanently delete your stored data. This cannot be undone.")) return;
     setDisconnecting(true);
     try {
-      await fetch(`${API}/api/disconnect`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ jobberAccountId }) });
+      await fetch(`${API}/api/disconnect`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({}) });
     } catch { /* continue */ } finally {
       navigate("/disconnected");
     }
@@ -82,7 +82,7 @@ export function Nav({ left, right: _right, onSyncComplete }: NavProps) {
     setSyncing(true);
     setSyncError(null);
     try {
-      const res = await fetch(`${API}/api/sync`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ jobberAccountId }) });
+      const res = await fetch(`${API}/api/sync`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({}) });
       if (!res.ok) {
         const data = await res.json() as { error?: string };
         setSyncError(data.error ?? "Sync failed.");

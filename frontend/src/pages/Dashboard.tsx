@@ -93,7 +93,7 @@ export default function Dashboard() {
     if (!jobberAccountId) return;
 
     // Check subscription status first — this endpoint is never blocked by the subscription middleware
-    const billingRes = await fetch(`${API}/api/billing/status?jobberAccountId=${encodeURIComponent(jobberAccountId)}`);
+    const billingRes = await fetch(`${API}/api/billing/status`);
     if (billingRes.ok) {
       const billing = (await billingRes.json()) as { subscriptionStatus: string; trialDaysLeft: number; trialExpired: boolean };
       if (billing.trialExpired || billing.subscriptionStatus === "expired") {
@@ -102,7 +102,7 @@ export default function Dashboard() {
       }
     }
 
-    const meRes = await fetch(`${API}/api/me?jobberAccountId=${encodeURIComponent(jobberAccountId)}`);
+    const meRes = await fetch(`${API}/api/me`);
     if (!meRes.ok) {
       if (meRes.status === 402) {
         setSubscriptionRequired(true);
@@ -115,10 +115,10 @@ export default function Dashboard() {
 
     const [me, clientData, assetData, settingsData, fieldData] = await Promise.all([
       meRes.json(),
-      fetch(`${API}/api/clients?jobberAccountId=${encodeURIComponent(jobberAccountId)}`).then((r) => r.json()),
-      fetch(`${API}/api/assets?jobberAccountId=${encodeURIComponent(jobberAccountId)}`).then((r) => r.json()),
-      fetch(`${API}/api/settings?jobberAccountId=${encodeURIComponent(jobberAccountId)}`).then((r) => r.json()),
-      fetch(`${API}/api/orgs/field-mapping?jobberAccountId=${encodeURIComponent(jobberAccountId)}`).then((r) => r.json()),
+      fetch(`${API}/api/clients`).then((r) => r.json()),
+      fetch(`${API}/api/assets`).then((r) => r.json()),
+      fetch(`${API}/api/settings`).then((r) => r.json()),
+      fetch(`${API}/api/orgs/field-mapping`).then((r) => r.json()),
     ]) as [
       { accountName: string },
       { clients: Client[] },
@@ -143,7 +143,7 @@ export default function Dashboard() {
 
     // Fetch unassigned count — soft failure, defaults to 0
     const unassignedRes = await fetch(
-      `${API}/api/stats/unassigned-count?jobberAccountId=${encodeURIComponent(jobberAccountId)}`
+      `${API}/api/stats/unassigned-count`
     ).catch(() => null);
     if (unassignedRes?.ok) {
       const { count } = (await unassignedRes.json()) as { count: number };
@@ -161,7 +161,7 @@ export default function Dashboard() {
     if (!jobberAccountId) return;
     const interval = setInterval(async () => {
       try {
-        const res = await fetch(`${API}/api/me?jobberAccountId=${encodeURIComponent(jobberAccountId)}`);
+        const res = await fetch(`${API}/api/me`);
         if (!res.ok) {
           clearInterval(interval);
           localStorage.removeItem("jobberAccountId");
@@ -179,7 +179,7 @@ export default function Dashboard() {
     if (!window.confirm("Disconnecting will cancel your AssetMinder subscription immediately and permanently delete your stored data. This cannot be undone.")) return;
     setDisconnecting(true);
     try {
-      await fetch(`${API}/api/disconnect`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ jobberAccountId }) });
+      await fetch(`${API}/api/disconnect`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({}) });
     } catch { /* continue */ } finally {
       navigate("/disconnected");
     }
@@ -192,7 +192,7 @@ export default function Dashboard() {
       const res = await fetch(`${API}/api/clients/${clientId}/portal-link`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ jobberAccountId }),
+        body: JSON.stringify({}),
       });
       const data = (await res.json()) as { portalUrl: string };
       setPortalUrl(data.portalUrl);
@@ -208,7 +208,7 @@ export default function Dashboard() {
     setShowFieldPicker(true);
     setLoadingFields(true);
     try {
-      const res = await fetch(`${API}/api/custom-fields?jobberAccountId=${encodeURIComponent(jobberAccountId)}`);
+      const res = await fetch(`${API}/api/custom-fields`);
       const data = (await res.json()) as { fields: { id: string; label: string }[] };
       setAvailableFields(data.fields);
       setSelectedFieldLabel(assetFieldLabel ?? "");
@@ -227,7 +227,7 @@ export default function Dashboard() {
       await fetch(`${API}/api/orgs/field-mapping`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ jobberAccountId, fieldLabel: selectedFieldLabel, fieldId: selectedFieldId || undefined }),
+        body: JSON.stringify({ fieldLabel: selectedFieldLabel, fieldId: selectedFieldId || undefined }),
       });
       setAssetFieldLabel(selectedFieldLabel);
       setAssetFieldId(selectedFieldId || null);
@@ -251,7 +251,7 @@ export default function Dashboard() {
       await fetch(`${API}/api/settings`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ jobberAccountId, serviceKeywords: keywords }),
+        body: JSON.stringify({ serviceKeywords: keywords }),
       });
       setKeywordsSaved(true);
       setTimeout(() => setKeywordsSaved(false), 2500);

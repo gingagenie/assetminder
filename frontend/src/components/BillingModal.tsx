@@ -20,28 +20,25 @@ export function BillingModal({ open, onClose }: BillingModalProps) {
   const [loading, setLoading] = useState(true);
   const [actionLoading, setActionLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const jobberAccountId = localStorage.getItem("jobberAccountId");
-
   useEffect(() => {
-    if (!open || !jobberAccountId) return;
+    if (!open) return;
     setLoading(true);
     setError(null);
-    fetch(`${API}/api/billing/status?jobberAccountId=${encodeURIComponent(jobberAccountId)}`)
+    fetch(`${API}/api/billing/status`)
       .then((r) => r.json())
       .then((data: BillingStatus) => setStatus(data))
       .catch(() => setError("Failed to load billing status."))
       .finally(() => setLoading(false));
-  }, [open, jobberAccountId]);
+  }, [open]);
 
   async function handleSubscribe() {
-    if (!jobberAccountId) return;
     setActionLoading(true);
     setError(null);
     try {
       const res = await fetch(`${API}/api/billing/create-checkout-session`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ jobberAccountId }),
+        body: JSON.stringify({}),
       });
       const data = (await res.json()) as { url?: string; error?: string };
       if (!res.ok || !data.url) {
@@ -57,11 +54,10 @@ export function BillingModal({ open, onClose }: BillingModalProps) {
   }
 
   async function handlePortal() {
-    if (!jobberAccountId) return;
     setActionLoading(true);
     setError(null);
     try {
-      const res = await fetch(`${API}/api/billing/portal-url?jobberAccountId=${encodeURIComponent(jobberAccountId)}`);
+      const res = await fetch(`${API}/api/billing/portal-url`);
       const data = (await res.json()) as { url?: string; error?: string };
       if (!res.ok || !data.url) {
         setError(data.error ?? "Failed to open billing portal.");
