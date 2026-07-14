@@ -45,10 +45,14 @@ router.post("/create-checkout-session", async (req: Request, res: Response) => {
 
   const trialStart = org.trialStartedAt ?? org.createdAt;
   const trialEndUnix = Math.floor((trialStart.getTime() + 14 * 24 * 60 * 60 * 1000) / 1000);
-  // If trial has already expired, Stripe requires trial_end to be in the future (min 48h),
-  // so only pass it when there's time remaining.
-  const trialEndInFuture = trialEndUnix > Math.floor(Date.now() / 1000);
-  const subscriptionData = trialEndInFuture ? { trial_end: trialEndUnix } : {};
+  // Only honour the trial period when the account is genuinely still in its
+  // trial window. Checking subscriptionStatus (not just the date) ensures that
+  // expired and tombstone-reconnected accounts never receive a Stripe trial,
+  // even when trial_started_at is recent enough that the date is still future.
+  const trialStillActive =
+    org.subscriptionStatus === "trial" &&
+    trialEndUnix > Math.floor(Date.now() / 1000);
+  const subscriptionData = trialStillActive ? { trial_end: trialEndUnix } : {};
 
   const session = await stripe.checkout.sessions.create({
     customer: customerId,
