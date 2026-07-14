@@ -40,7 +40,7 @@ export function SubscriptionWall() {
         </div>
         <h2 className="text-lg font-semibold text-slate-800 mb-2">Your free trial has ended</h2>
         <p className="text-sm text-slate-500 mb-6">
-          Subscribe to continue using AssetMinder. Your data is safe and your first 14 days are free.
+          Subscribe to continue using AssetMinder. Your data is safe and waiting.
         </p>
         {error && (
           <p className="text-xs text-red-500 mb-4">{error}</p>
@@ -52,7 +52,7 @@ export function SubscriptionWall() {
         >
           {loading ? "Redirecting…" : "Start subscription — $29/month"}
         </button>
-        <p className="text-xs text-slate-400 mt-3">14-day free trial · Cancel anytime</p>
+        <p className="text-xs text-slate-400 mt-3">Cancel anytime</p>
       </div>
     </div>
   );

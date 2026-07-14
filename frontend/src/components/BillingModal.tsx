@@ -144,7 +144,7 @@ export function BillingModal({ open, onClose }: BillingModalProps) {
                 >
                   {actionLoading ? "Redirecting…" : "Subscribe now — $29/month"}
                 </button>
-                <p className="text-xs text-slate-400 text-center">14-day free trial included · Cancel anytime</p>
+                <p className="text-xs text-slate-400 text-center">Cancel anytime</p>
               </>
             )}
           </div>
