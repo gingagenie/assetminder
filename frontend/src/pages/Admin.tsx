@@ -220,9 +220,10 @@ export default function Admin() {
                     <td className="px-5 py-3">
                       <div className="flex items-center justify-end gap-2 flex-wrap">
                         <button
-                          disabled={pending}
+                          disabled={pending || org.subscriptionStatus !== "expired"}
+                          title={org.subscriptionStatus !== "expired" ? "Only available for expired accounts — use Gift for trial/active" : undefined}
                           onClick={() => action(org.id, "extend-trial")}
-                          className="text-xs px-2.5 py-1 rounded-md bg-blue-900/50 text-blue-300 hover:bg-blue-800/60 transition-colors disabled:opacity-40"
+                          className="text-xs px-2.5 py-1 rounded-md bg-blue-900/50 text-blue-300 hover:bg-blue-800/60 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
                         >
                           +14 days
                         </button>

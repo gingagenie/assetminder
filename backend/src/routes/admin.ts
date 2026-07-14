@@ -68,17 +68,18 @@ router.post("/orgs/:id/extend-trial", async (req: Request, res: Response) => {
   const [org] = await db.select().from(jobberOrgs).where(eq(jobberOrgs.id, id)).limit(1);
   if (!org) { res.status(404).json({ error: "Org not found" }); return; }
 
-  // Key off subscriptionStatus, not the date. A stacked/stale trial_started_at
-  // can put currentEnd in the future even on an expired row, so trusting
-  // max(now, currentEnd) would top up from a garbage anchor.
-  //
-  // expired → grant 14 days from today (ignore existing date entirely)
-  // trial   → top up from the real remaining end (date is trustworthy)
+  // Only valid for expired accounts — trial/active accounts use Gift instead.
+  // Keeping this server-side regardless of whether the frontend button is disabled.
+  if (org.subscriptionStatus !== "expired") {
+    res.status(409).json({ error: "extend-trial only applies to expired accounts" });
+    return;
+  }
+
+  // Set trialStartedAt = now so trialEnd = now + 14d.
+  // Writing a fresh value overwrites any stale/stacked date on the row.
   const DAY_MS = 24 * 60 * 60 * 1000;
-  const newTrialEnd = org.subscriptionStatus === "expired"
-    ? new Date(Date.now() + 14 * DAY_MS)
-    : new Date(computeTrialEnd(org).getTime() + 14 * DAY_MS);
-  const newStart = new Date(newTrialEnd.getTime() - 14 * DAY_MS);
+  const now = new Date();
+  const newStart = now;
 
   await db.update(jobberOrgs)
     .set({ trialStartedAt: newStart, subscriptionStatus: "trial", updatedAt: new Date() })
