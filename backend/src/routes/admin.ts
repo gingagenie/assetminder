@@ -68,14 +68,17 @@ router.post("/orgs/:id/extend-trial", async (req: Request, res: Response) => {
   const [org] = await db.select().from(jobberOrgs).where(eq(jobberOrgs.id, id)).limit(1);
   if (!org) { res.status(404).json({ error: "Org not found" }); return; }
 
-  // Extend from max(now, currentTrialEnd) so that:
-  // - an active trial gets 14 days added to its remaining end (no reset penalty)
-  // - an expired trial gets 14 days from today (no bonus for past elapsed time)
-  // - repeated clicks stack correctly from the then-current end, not from a fixed anchor
-  const currentEnd = computeTrialEnd(org);
-  const extendFrom = new Date(Math.max(Date.now(), currentEnd.getTime()));
-  const newTrialEnd = new Date(extendFrom.getTime() + 14 * 24 * 60 * 60 * 1000);
-  const newStart = new Date(newTrialEnd.getTime() - 14 * 24 * 60 * 60 * 1000);
+  // Key off subscriptionStatus, not the date. A stacked/stale trial_started_at
+  // can put currentEnd in the future even on an expired row, so trusting
+  // max(now, currentEnd) would top up from a garbage anchor.
+  //
+  // expired → grant 14 days from today (ignore existing date entirely)
+  // trial   → top up from the real remaining end (date is trustworthy)
+  const DAY_MS = 24 * 60 * 60 * 1000;
+  const newTrialEnd = org.subscriptionStatus === "expired"
+    ? new Date(Date.now() + 14 * DAY_MS)
+    : new Date(computeTrialEnd(org).getTime() + 14 * DAY_MS);
+  const newStart = new Date(newTrialEnd.getTime() - 14 * DAY_MS);
 
   await db.update(jobberOrgs)
     .set({ trialStartedAt: newStart, subscriptionStatus: "trial", updatedAt: new Date() })
