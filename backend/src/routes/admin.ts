@@ -43,6 +43,8 @@ router.get("/dashboard", async (_req: Request, res: Response) => {
   const enriched = orgs.map((org) => ({
     id: org.id,
     jobberAccountId: org.jobberAccountId,
+    displayName: org.name ?? org.lastKnownName ?? null,
+    disconnectedAt: org.disconnectedAt?.toISOString() ?? null,
     createdAt: org.createdAt,
     trialStartedAt: org.trialStartedAt,
     trialEndsAt: computeTrialEnd(org),

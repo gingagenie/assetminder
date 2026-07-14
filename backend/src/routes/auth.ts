@@ -247,6 +247,7 @@ router.get("/callback", async (req: Request, res: Response) => {
       .update(jobberOrgs)
       .set({
         name: orgName,
+        lastKnownName: orgName,
         // Backfill only when missing — email is the login identity and unique.
         email: existing[0].email ?? ownerEmail,
         accessToken: tokens.access_token,
@@ -265,6 +266,7 @@ router.get("/callback", async (req: Request, res: Response) => {
       id: crypto.randomUUID(),
       jobberAccountId,
       name: orgName,
+      lastKnownName: orgName,
       email: ownerEmail,
       accessToken: tokens.access_token,
       refreshToken: tokens.refresh_token,

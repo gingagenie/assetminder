@@ -13,6 +13,8 @@ interface LoginEvent {
 interface OrgRow {
   id: string;
   jobberAccountId: string;
+  displayName: string | null;
+  disconnectedAt: string | null;
   createdAt: string;
   trialStartedAt: string | null;
   trialEndsAt: string;
@@ -173,13 +175,22 @@ export default function Admin() {
                     key={org.id}
                     className={`border-b border-slate-800/50 ${i % 2 === 0 ? "" : "bg-slate-900/50"} hover:bg-slate-800/40 transition-colors`}
                   >
-                    {/* Org ID */}
+                    {/* Org name / ID */}
                     <td className="px-5 py-3">
-                      <p className="font-mono text-xs text-slate-300 truncate max-w-[180px]" title={org.jobberAccountId}>
+                      {org.displayName ? (
+                        <p className="text-sm font-medium text-slate-200 truncate max-w-[200px]">
+                          {org.displayName}
+                        </p>
+                      ) : (
+                        <p className="text-xs text-slate-500 truncate max-w-[200px]">
+                          {org.disconnectedAt ? (
+                            <span className="inline-block px-1.5 py-0.5 rounded bg-slate-800 text-slate-500 mr-1">Disconnected</span>
+                          ) : null}
+                          …{org.jobberAccountId.slice(-12)}
+                        </p>
+                      )}
+                      <p className="font-mono text-xs text-slate-600 truncate max-w-[200px] mt-0.5" title={org.jobberAccountId}>
                         {org.jobberAccountId}
-                      </p>
-                      <p className="font-mono text-xs text-slate-600 truncate max-w-[180px]" title={org.id}>
-                        {org.id}
                       </p>
                     </td>
 
