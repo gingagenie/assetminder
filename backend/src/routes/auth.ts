@@ -252,6 +252,10 @@ router.get("/callback", async (req: Request, res: Response) => {
         accessToken: tokens.access_token,
         refreshToken: tokens.refresh_token,
         expiresAt,
+        // Clear the tombstone marker — this account is active again.
+        // trial_started_at and subscription_status are NOT reset here,
+        // so a reconnect after disconnect never grants a fresh trial.
+        disconnectedAt: null,
         updatedAt: new Date(),
       })
       .where(eq(jobberOrgs.jobberAccountId, jobberAccountId));

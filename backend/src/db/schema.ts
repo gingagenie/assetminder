@@ -12,6 +12,7 @@ export const jobberOrgs = pgTable("jobber_orgs", {
   email: text("email").unique(),
   passwordHash: text("password_hash"),
   passwordSetAt: timestamp("password_set_at", { withTimezone: true }),
+  disconnectedAt: timestamp("disconnected_at", { withTimezone: true }),
   trialStartedAt: timestamp("trial_started_at", { withTimezone: true }),
   subscriptionStatus: text("subscription_status").notNull().default("trial"),
   stripeCustomerId: text("stripe_customer_id"),
