@@ -130,6 +130,20 @@ export const passwordResetTokens = pgTable("password_reset_tokens", {
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
+export const smSupportEmails = pgTable("sm_support_emails", {
+  id: text("id").primaryKey(),
+  fromEmail: text("from_email").notNull(),
+  subject: text("subject").notNull(),
+  body: text("body").notNull(),
+  category: text("category"),
+  confidence: numeric("confidence"),
+  draftReply: text("draft_reply"),
+  status: text("status").notNull().default("pending"),
+  messageId: text("message_id").unique(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  resolvedAt: timestamp("resolved_at", { withTimezone: true }),
+});
+
 export type JobberOrg = typeof jobberOrgs.$inferSelect;
 export type NewJobberOrg = typeof jobberOrgs.$inferInsert;
 export type Client = typeof clients.$inferSelect;
@@ -138,3 +152,4 @@ export type JobCustomField = typeof jobCustomFields.$inferSelect;
 export type LoginEvent = typeof loginEvents.$inferSelect;
 export type Session = typeof sessions.$inferSelect;
 export type PasswordResetToken = typeof passwordResetTokens.$inferSelect;
+export type SupportEmail = typeof smSupportEmails.$inferSelect;

@@ -20,6 +20,38 @@ services:
       - key: NODE_ENV
         value: production
 
+  - type: worker
+    name: support-email-agent
+    runtime: node
+    rootDir: backend
+    buildCommand: npm install --include=dev && npm run build
+    startCommand: node dist/supportAgent.js
+    envVars:
+      - key: DATABASE_URL
+        sync: false
+      - key: ANTHROPIC_API_KEY
+        sync: false
+      - key: SUPPORT_EMAIL_HOST
+        sync: false
+      - key: SUPPORT_EMAIL_USER
+        sync: false
+      - key: SUPPORT_EMAIL_PASS
+        sync: false
+      - key: SUPPORT_EMAIL_IMAP_PORT
+        value: "993"
+      - key: SUPPORT_EMAIL_SMTP_PORT
+        value: "587"
+      - key: SUPPORT_SLACK_WEBHOOK_URL
+        sync: false
+      - key: SUPPORT_NOTIFY_EMAIL
+        sync: false
+      - key: SUPPORT_CONFIDENCE_THRESHOLD
+        value: "0.85"
+      - key: SUPPORT_DIGEST_HOUR
+        value: "8"
+      - key: NODE_ENV
+        value: production
+
   - type: web
     name: assetminder-frontend
     env: static

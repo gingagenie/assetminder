@@ -4,12 +4,15 @@
   "private": true,
   "scripts": {
     "dev": "tsx watch src/index.ts",
+    "dev:agent": "tsx watch src/supportAgent.ts",
     "build": "rm -rf dist && tsc",
     "start": "node dist/index.js",
+    "start:agent": "node dist/supportAgent.js",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.50.0",
     "argon2": "^0.44.0",
     "cookie-parser": "^1.4.7",
     "cors": "^2.8.5",
@@ -17,6 +20,8 @@
     "drizzle-orm": "^0.36.4",
     "express": "^4.21.2",
     "express-rate-limit": "^8.3.2",
+    "imapflow": "^1.0.165",
+    "mailparser": "^3.7.0",
     "nodemailer": "^9.0.3",
     "pdfkit": "^0.18.0",
     "postgres": "^3.4.5",
@@ -26,6 +31,7 @@
     "@types/cookie-parser": "^1.4.10",
     "@types/cors": "^2.8.17",
     "@types/express": "^5.0.0",
+    "@types/mailparser": "^3.4.5",
     "@types/node": "^22.10.2",
     "@types/nodemailer": "^8.0.1",
     "@types/pdfkit": "^0.17.5",
