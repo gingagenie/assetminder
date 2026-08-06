@@ -108,6 +108,7 @@ export const loginEvents = pgTable("login_events", {
   id: text("id").primaryKey(),
   jobberAccountId: text("jobber_account_id").notNull(),
   eventType: text("event_type").notNull(),
+  metadata: text("metadata"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 

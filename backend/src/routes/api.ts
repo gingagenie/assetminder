@@ -4,6 +4,7 @@ import crypto from "crypto";
 import PDFDocument from "pdfkit";
 import { getValidToken } from "../lib/jobberToken";
 import { syncOrg } from "../lib/sync";
+import { logEvent } from "../lib/events";
 import { groupAssets } from "../lib/groupAssets";
 import { calculateDueDates } from "../lib/calculateDueDates";
 import { deleteOrgData } from "../lib/deleteOrg";
@@ -486,6 +487,8 @@ router.post("/assets/from-jobs", async (req: Request, res: Response) => {
 
     const [created] = await db.select().from(assets).where(eq(assets.id, assetId)).limit(1);
 
+    await logEvent(jobberAccountId, "asset_created", { identifier: displayName });
+
     res.status(201).json({
       asset: {
         id: created.id,
@@ -686,6 +689,8 @@ router.post("/assets/:assetId/rename", async (req: Request, res: Response) => {
         .where(inArray(jobCustomFields.id, linkedJobs.map((j) => j.cfId)));
     }
 
+    await logEvent(jobberAccountId, "asset_updated", { action: "renamed", from: oldIdentifier, to: newName });
+
     res.json({ ok: true, displayName: newName });
   } catch (err) {
     console.error("[assets/rename] error:", err);
@@ -770,6 +775,8 @@ router.post("/assets/:assetId/merge", async (req: Request, res: Response) => {
     await groupAssets(jobberAccountId);
     await calculateDueDates(jobberAccountId);
     await db.delete(assets).where(and(eq(assets.id, assetId), eq(assets.orgId, org.id)));
+
+    await logEvent(jobberAccountId, "asset_updated", { action: "merged", identifier: asset.identifier, into: target.identifier });
 
     console.log(`[assets/merge] merged asset ${assetId} ("${asset.identifier}") into ${target.id} ("${target.identifier}")`);
     res.json({ ok: true, mergedIntoId: target.id });
@@ -1411,6 +1418,8 @@ router.post("/clients/:clientId/portal-link", async (req: Request, res: Response
     const token = crypto.randomUUID();
 
     await db.update(clients).set({ portalToken: token }).where(eq(clients.id, clientId));
+
+    await logEvent(jobberAccountId, "portal_shared", { clientName: existing.companyName ?? existing.name });
 
     res.json({ portalUrl: `${frontendBase}/#/portal/${token}` });
   } catch (err) {

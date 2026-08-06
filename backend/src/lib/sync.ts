@@ -4,6 +4,7 @@ import { jobberOrgs, clients, assets, jobs, jobCustomFields, jobLineItems } from
 import { eq, inArray, and } from "drizzle-orm";
 import { getValidToken } from "./jobberToken";
 import { deleteOrgData } from "./deleteOrg";
+import { logEvent } from "./events";
 
 const JOBBER_GRAPHQL_URL = "https://api.getjobber.com/api/graphql";
 const JOBBER_API_VERSION = "2025-04-16";
@@ -421,6 +422,11 @@ export async function syncOrg(jobberAccountId: string): Promise<SyncResult> {
     const { jobsCount, fieldsCount } = await syncJobs(accessToken, org.id);
 
     console.log(`[sync] complete — clients: ${clientsUpserted}, jobs: ${jobsCount}, custom fields: ${fieldsCount}`);
+
+    await logEvent(jobberAccountId, "sync_completed", {
+      clientsUpserted,
+      jobsUpserted: jobsCount,
+    });
 
     return {
       clientsUpserted,

@@ -256,7 +256,7 @@ router.get("/orgs/:id", async (req: Request, res: Response) => {
       .orderBy(desc(loginEvents.createdAt))
       .limit(1),
     db
-      .select({ id: loginEvents.id, eventType: loginEvents.eventType, createdAt: loginEvents.createdAt })
+      .select({ id: loginEvents.id, eventType: loginEvents.eventType, metadata: loginEvents.metadata, createdAt: loginEvents.createdAt })
       .from(loginEvents)
       .where(eq(loginEvents.jobberAccountId, org.jobberAccountId))
       .orderBy(desc(loginEvents.createdAt))

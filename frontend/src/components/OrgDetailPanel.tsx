@@ -20,6 +20,7 @@ const TAG_ACTIVE_STYLES: Record<OrgTag, string> = {
 interface TimelineEvent {
   id: string;
   eventType: string;
+  metadata: string | null;
   createdAt: string;
 }
 
@@ -73,11 +74,26 @@ function fmtRelative(iso: string) {
   return `${Math.floor(hrs / 24)}d ago`;
 }
 
-const EVENT_LABELS: Record<string, string> = {
-  oauth_login: "OAuth login",
-  disconnect: "Disconnected",
-  reconnect: "Reconnected",
-};
+function describeEvent(eventType: string, metadata: string | null): string {
+  const m = metadata ? JSON.parse(metadata) as Record<string, unknown> : null;
+  switch (eventType) {
+    case "oauth_login":      return "OAuth login";
+    case "disconnect":       return "Disconnected";
+    case "reconnect":        return "Reconnected";
+    case "sync_completed":
+      return m ? `Sync — ${m.clientsUpserted} clients, ${m.jobsUpserted} jobs` : "Sync completed";
+    case "asset_created":
+      return m?.identifier ? `Asset created — ${m.identifier}` : "Asset created";
+    case "asset_updated":
+      if (m?.action === "renamed") return `Asset renamed — "${m.from}" → "${m.to}"`;
+      if (m?.action === "merged") return `Asset merged — "${m.identifier}" into "${m.into}"`;
+      return "Asset updated";
+    case "portal_shared":
+      return m?.clientName ? `Portal shared — ${m.clientName}` : "Portal link generated";
+    default:
+      return eventType;
+  }
+}
 
 function SectionHeading({ children }: { children: React.ReactNode }) {
   return <h3 className="text-xs font-semibold uppercase tracking-widest text-slate-500 mb-3">{children}</h3>;
@@ -369,7 +385,7 @@ export default function OrgDetailPanel({ orgId, adminKey, onClose, onRefreshTabl
                     <div key={ev.id} className="flex items-start gap-4 py-2">
                       <span className="w-4 h-4 rounded-full bg-slate-700 border border-slate-600 flex-shrink-0 mt-0.5 relative z-10" />
                       <div className="min-w-0">
-                        <p className="text-sm text-slate-300">{EVENT_LABELS[ev.eventType] ?? ev.eventType}</p>
+                        <p className="text-sm text-slate-300">{describeEvent(ev.eventType, ev.metadata)}</p>
                         <p className="text-xs text-slate-600">{fmtDateTime(ev.createdAt)}</p>
                       </div>
                     </div>
