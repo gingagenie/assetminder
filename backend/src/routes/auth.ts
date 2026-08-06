@@ -243,19 +243,34 @@ router.get("/callback", async (req: Request, res: Response) => {
     .limit(1);
 
   if (existing.length > 0) {
+    // Re-evaluate subscriptionStatus on reconnect — same priority order as deleteOrg:
+    // 1. Active Stripe subscriber → stays "active" (never demote a paying customer).
+    // 2. Still inside original trial window → restore "trial".
+    // 3. Legitimately lapsed → leave/keep as "expired".
+    // trialStartedAt is NEVER reset: this is the abuse-prevention anchor that
+    // prevents a fresh trial window being granted on reconnect.
+    const prev = existing[0];
+    const trialStart = prev.trialStartedAt ?? prev.createdAt;
+    const trialEndMs = trialStart.getTime() + 14 * 24 * 60 * 60 * 1000;
+    const reconnectStatus =
+      prev.subscriptionStatus === "active"
+        ? "active"
+        : Date.now() < trialEndMs
+        ? "trial"
+        : "expired";
+
     await db
       .update(jobberOrgs)
       .set({
         name: orgName,
         lastKnownName: orgName,
         // Backfill only when missing — email is the login identity and unique.
-        email: existing[0].email ?? ownerEmail,
+        email: prev.email ?? ownerEmail,
         accessToken: tokens.access_token,
         refreshToken: tokens.refresh_token,
         expiresAt,
+        subscriptionStatus: reconnectStatus,
         // Clear the tombstone marker — this account is active again.
-        // trial_started_at and subscription_status are NOT reset here,
-        // so a reconnect after disconnect never grants a fresh trial.
         disconnectedAt: null,
         updatedAt: new Date(),
       })

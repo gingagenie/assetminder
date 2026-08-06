@@ -19,7 +19,12 @@ import { destroyAllSessions } from "./session";
  */
 export async function deleteOrgData(jobberAccountId: string): Promise<void> {
   const [org] = await db
-    .select({ id: jobberOrgs.id })
+    .select({
+      id: jobberOrgs.id,
+      subscriptionStatus: jobberOrgs.subscriptionStatus,
+      trialStartedAt: jobberOrgs.trialStartedAt,
+      createdAt: jobberOrgs.createdAt,
+    })
     .from(jobberOrgs)
     .where(eq(jobberOrgs.jobberAccountId, jobberAccountId))
     .limit(1);
@@ -52,8 +57,24 @@ export async function deleteOrgData(jobberAccountId: string): Promise<void> {
   await db.delete(assets).where(eq(assets.orgId, orgId));
   await db.delete(orgSettings).where(eq(orgSettings.orgId, orgId));
 
-  // Soft-delete the org row: null personal/credential fields, mark expired.
-  // trial_started_at is intentionally preserved — it's the abuse-prevention anchor.
+  // Compute the correct tombstone status — checked in priority order:
+  // 1. Paying customers (subscriptionStatus="active") keep "active": a Jobber
+  //    disconnect should not cut off a paying subscriber.
+  // 2. Orgs still inside their trial window keep "trial": accidental or
+  //    short-lived disconnects during the trial shouldn't forfeit the remainder.
+  // 3. Everything else (trial lapsed, already expired) → "expired".
+  // trialStartedAt is intentionally NOT reset — this is the abuse-prevention
+  // anchor that prevents a fresh trial window on reconnect.
+  const trialStart = org.trialStartedAt ?? org.createdAt;
+  const trialEndMs = trialStart.getTime() + 14 * 24 * 60 * 60 * 1000;
+  const tombstoneStatus =
+    org.subscriptionStatus === "active"
+      ? "active"
+      : Date.now() < trialEndMs
+      ? "trial"
+      : "expired";
+
+  // Soft-delete the org row: null personal/credential fields, preserve trial anchor.
   await db
     .update(jobberOrgs)
     .set({
@@ -68,7 +89,7 @@ export async function deleteOrgData(jobberAccountId: string): Promise<void> {
       assetIdentifierFieldId: null,
       stripeCustomerId: null,
       stripeSubscriptionId: null,
-      subscriptionStatus: "expired",
+      subscriptionStatus: tombstoneStatus,
       disconnectedAt: new Date(),
       updatedAt: new Date(),
     })

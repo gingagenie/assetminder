@@ -99,10 +99,36 @@ router.post("/webhook", async (req: Request, res: Response) => {
 
   if (event.type === "customer.subscription.deleted") {
     const sub = event.data.object;
-    await db
-      .update(jobberOrgs)
-      .set({ subscriptionStatus: "expired", updatedAt: new Date() })
-      .where(eq(jobberOrgs.stripeCustomerId, sub.customer as string));
+    // Guard: a failed Stripe checkout during an active trial fires this webhook
+    // (incomplete subscription → auto-cancelled → deleted). Don't kill the trial.
+    // Only write "expired" if the trial has genuinely lapsed, or if this was a
+    // real post-trial cancellation (subscriptionStatus was "active").
+    const [org] = await db
+      .select({
+        subscriptionStatus: jobberOrgs.subscriptionStatus,
+        trialStartedAt: jobberOrgs.trialStartedAt,
+        createdAt: jobberOrgs.createdAt,
+      })
+      .from(jobberOrgs)
+      .where(eq(jobberOrgs.stripeCustomerId, sub.customer as string))
+      .limit(1);
+
+    if (org) {
+      const trialStart = org.trialStartedAt ?? org.createdAt;
+      const trialEndMs = trialStart.getTime() + 14 * 24 * 60 * 60 * 1000;
+      const trialStillActive = org.subscriptionStatus === "trial" && Date.now() < trialEndMs;
+
+      if (trialStillActive) {
+        console.log(
+          `[billing/webhook] subscription.deleted for org still in trial — leaving status as "trial"`,
+        );
+      } else {
+        await db
+          .update(jobberOrgs)
+          .set({ subscriptionStatus: "expired", updatedAt: new Date() })
+          .where(eq(jobberOrgs.stripeCustomerId, sub.customer as string));
+      }
+    }
   }
 
   res.json({ received: true });

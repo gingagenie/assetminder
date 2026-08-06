@@ -3,7 +3,7 @@ import express, { Request, Response, NextFunction } from "express";
 import cors from "cors";
 import cookieParser from "cookie-parser";
 import { rateLimit } from "express-rate-limit";
-import { eq } from "drizzle-orm";
+import { eq, isNull, lte, and } from "drizzle-orm";
 import authRouter from "./routes/auth";
 import apiRouter from "./routes/api";
 import webhookRouter from "./routes/webhooks";
@@ -13,6 +13,7 @@ import accountAuthRouter from "./routes/accountAuth";
 import { resolveAuth, requireAuth } from "./middleware/auth";
 import { db } from "./db/client";
 import { jobberOrgs } from "./db/schema";
+import { getValidToken } from "./lib/jobberToken";
 
 const app = express();
 const PORT = process.env.PORT ?? 3001;
@@ -124,3 +125,49 @@ app.use("/api", requireAuth, requireSubscription, apiRouter);
 app.listen(PORT, () => {
   console.log(`AssetMinder backend running on port ${PORT}`);
 });
+
+// ---------- Background Jobber token refresh ----------
+// Proactively refreshes tokens for all connected orgs within 90 min of expiry.
+// On-demand refresh via getValidToken() only fires when a user triggers an API
+// call — idle orgs can silently accumulate stale tokens without this loop.
+
+const TOKEN_REFRESH_INTERVAL_MS = 30 * 60 * 1000; // every 30 minutes
+const TOKEN_REFRESH_HORIZON_MS = 90 * 60 * 1000;  // refresh if expiring within 90 min
+
+async function refreshNearExpiryTokens(): Promise<void> {
+  const horizon = new Date(Date.now() + TOKEN_REFRESH_HORIZON_MS);
+
+  const orgs = await db
+    .select({ jobberAccountId: jobberOrgs.jobberAccountId })
+    .from(jobberOrgs)
+    .where(
+      and(
+        isNull(jobberOrgs.disconnectedAt),
+        lte(jobberOrgs.expiresAt, horizon),
+      ),
+    );
+
+  if (orgs.length === 0) return;
+
+  console.log(`[token-refresh] ${orgs.length} org(s) need proactive token refresh`);
+
+  for (const org of orgs) {
+    try {
+      await getValidToken(org.jobberAccountId);
+      console.log(`[token-refresh] refreshed token for ${org.jobberAccountId}`);
+    } catch (err) {
+      // getValidToken already logs disconnect-level errors — just note the failure here
+      console.error(`[token-refresh] failed for ${org.jobberAccountId}:`, String(err));
+    }
+  }
+}
+
+// Run once at startup to immediately heal any stale tokens, then on interval
+refreshNearExpiryTokens().catch((err) =>
+  console.error("[token-refresh] startup run failed:", String(err)),
+);
+setInterval(() => {
+  refreshNearExpiryTokens().catch((err) =>
+    console.error("[token-refresh] interval run failed:", String(err)),
+  );
+}, TOKEN_REFRESH_INTERVAL_MS);
