@@ -256,6 +256,9 @@ export default function OrgDetailPanel({ orgId, adminKey, onClose, onRefreshTabl
               <div className="space-y-0.5">
                 <DataRow label="Name">{detail.displayName ?? <span className="text-slate-600">—</span>}</DataRow>
                 <DataRow label="Email">{detail.email ?? <span className="text-slate-600">—</span>}</DataRow>
+                <DataRow label="Internal ID">
+                  <span className="font-mono text-xs text-slate-400 select-all">{detail.id}</span>
+                </DataRow>
                 <DataRow label="Jobber ID">
                   <span className="font-mono text-xs">{detail.jobberAccountId}</span>
                 </DataRow>
