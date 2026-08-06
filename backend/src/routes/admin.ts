@@ -1,10 +1,13 @@
 import { Router, Request, Response, NextFunction } from "express";
 import { db } from "../db/client";
-import { jobberOrgs, loginEvents, clients, assets, jobs, orgNotes } from "../db/schema";
-import { eq, sql, desc } from "drizzle-orm";
+import { jobberOrgs, loginEvents, clients, assets, jobs, jobCustomFields, jobLineItems, orgNotes } from "../db/schema";
+import { eq, sql, desc, inArray, and } from "drizzle-orm";
 import { deleteOrgData } from "../lib/deleteOrg";
 import { forceRefreshToken } from "../lib/jobberToken";
 import crypto from "crypto";
+
+const JOBBER_GRAPHQL_URL = "https://api.getjobber.com/api/graphql";
+const JOBBER_API_VERSION = "2025-04-16";
 
 const router = Router();
 
@@ -329,6 +332,197 @@ router.patch("/orgs/:id/tags", async (req: Request, res: Response) => {
 
   await db.update(jobberOrgs).set({ tags: validTags, updatedAt: new Date() }).where(eq(jobberOrgs.id, id));
   res.json({ ok: true, tags: validTags });
+});
+
+// ---------- GET /api/admin/orgs/:id/reconcile-clients ----------
+// Compares local client rows against Jobber's current client list.
+// ?confirm=true to actually delete orphans (default is dry-run).
+
+router.get("/orgs/:id/reconcile-clients", async (req: Request, res: Response) => {
+  const id = String(req.params.id);
+  const confirm = req.query.confirm === "true";
+
+  const [org] = await db.select().from(jobberOrgs).where(eq(jobberOrgs.id, id)).limit(1);
+  if (!org) { res.status(404).json({ error: "Org not found" }); return; }
+  if (org.disconnectedAt) { res.status(409).json({ error: "Org is disconnected — cannot fetch Jobber client list" }); return; }
+
+  // Fetch ALL current clients from Jobber (paginated)
+  const accessToken = org.accessToken;
+  const jobberClientIds = new Set<string>();
+  let cursor: string | null = null;
+  const PAGE_SIZE = 100;
+
+  try {
+    do {
+      const body = JSON.stringify({
+        query: `query($first: Int!, $after: String) {
+          clients(first: $first, after: $after) {
+            nodes { id }
+            pageInfo { hasNextPage endCursor }
+          }
+        }`,
+        variables: { first: PAGE_SIZE, after: cursor },
+      });
+      const r = await fetch(JOBBER_GRAPHQL_URL, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${accessToken}`, "X-JOBBER-GRAPHQL-VERSION": JOBBER_API_VERSION },
+        body,
+      });
+      const json = (await r.json()) as { data?: { clients: { nodes: { id: string }[]; pageInfo: { hasNextPage: boolean; endCursor: string | null } } }; errors?: unknown[] };
+      if (!r.ok || json.errors) { res.status(502).json({ error: "Jobber API error fetching clients", detail: json.errors }); return; }
+      const page = json.data!.clients;
+      for (const n of page.nodes) jobberClientIds.add(n.id);
+      cursor = page.pageInfo.hasNextPage ? page.pageInfo.endCursor : null;
+    } while (cursor);
+  } catch (err) {
+    res.status(502).json({ error: `Jobber fetch failed: ${String(err)}` }); return;
+  }
+
+  // Find local clients for this org not in the Jobber response
+  const localClients = await db
+    .select({ id: clients.id, name: clients.name, jobberClientId: clients.jobberClientId, email: clients.email })
+    .from(clients)
+    .where(eq(clients.orgId, org.id));
+
+  const orphaned = localClients.filter((c) => !jobberClientIds.has(c.jobberClientId));
+
+  if (orphaned.length === 0) {
+    res.json({ dryRun: !confirm, orphanedCount: 0, orphaned: [], message: "No orphaned clients found — local DB matches Jobber." });
+    return;
+  }
+
+  if (!confirm) {
+    // Dry-run: show what would be deleted
+    const orphanedIds = orphaned.map((c) => c.jobberClientId);
+    const assetRows = orphanedIds.length > 0
+      ? await db.select({ jobberClientId: assets.jobberClientId, identifier: assets.identifier })
+          .from(assets)
+          .where(and(eq(assets.orgId, org.id), inArray(assets.jobberClientId, orphanedIds)))
+      : [];
+
+    res.json({
+      dryRun: true,
+      orphanedCount: orphaned.length,
+      orphaned: orphaned.map((c) => ({
+        ...c,
+        affectedAssets: assetRows.filter((a) => a.jobberClientId === c.jobberClientId).map((a) => a.identifier),
+      })),
+      message: `${orphaned.length} orphaned client(s) found. Call with ?confirm=true to delete.`,
+    });
+    return;
+  }
+
+  // Confirmed — execute deletion
+  const orphanedJobberClientIds = orphaned.map((c) => c.jobberClientId);
+
+  // Null out jobberClientId on assets that referenced these clients (preserve the asset row)
+  if (orphanedJobberClientIds.length > 0) {
+    await db
+      .update(assets)
+      .set({ jobberClientId: null })
+      .where(and(eq(assets.orgId, org.id), inArray(assets.jobberClientId, orphanedJobberClientIds)));
+  }
+
+  // Delete the orphaned client rows
+  const orphanedInternalIds = orphaned.map((c) => c.id);
+  await db.delete(clients).where(inArray(clients.id, orphanedInternalIds));
+
+  console.log(`[admin/reconcile] deleted ${orphaned.length} orphaned client(s) for org ${org.id}`);
+  res.json({
+    dryRun: false,
+    deleted: orphaned.length,
+    deletedClients: orphaned.map((c) => ({ id: c.id, name: c.name, jobberClientId: c.jobberClientId })),
+  });
+});
+
+// ---------- GET /api/admin/orgs/:id/reconcile-jobs ----------
+// Compares local job rows against Jobber's current job list.
+// ?confirm=true to actually delete orphans (default is dry-run).
+
+router.get("/orgs/:id/reconcile-jobs", async (req: Request, res: Response) => {
+  const id = String(req.params.id);
+  const confirm = req.query.confirm === "true";
+
+  const [org] = await db.select().from(jobberOrgs).where(eq(jobberOrgs.id, id)).limit(1);
+  if (!org) { res.status(404).json({ error: "Org not found" }); return; }
+  if (org.disconnectedAt) { res.status(409).json({ error: "Org is disconnected — cannot fetch Jobber job list" }); return; }
+
+  // Fetch ALL current job IDs from Jobber (paginated)
+  const accessToken = org.accessToken;
+  const jobberJobIds = new Set<string>();
+  let cursor: string | null = null;
+  const PAGE_SIZE = 100;
+
+  try {
+    do {
+      const body = JSON.stringify({
+        query: `query($first: Int!, $after: String) {
+          jobs(first: $first, after: $after) {
+            nodes { id }
+            pageInfo { hasNextPage endCursor }
+          }
+        }`,
+        variables: { first: PAGE_SIZE, after: cursor },
+      });
+      const r = await fetch(JOBBER_GRAPHQL_URL, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${accessToken}`, "X-JOBBER-GRAPHQL-VERSION": JOBBER_API_VERSION },
+        body,
+      });
+      const json = (await r.json()) as { data?: { jobs: { nodes: { id: string }[]; pageInfo: { hasNextPage: boolean; endCursor: string | null } } }; errors?: unknown[] };
+      if (!r.ok || json.errors) { res.status(502).json({ error: "Jobber API error fetching jobs", detail: json.errors }); return; }
+      const page = json.data!.jobs;
+      for (const n of page.nodes) jobberJobIds.add(n.id);
+      cursor = page.pageInfo.hasNextPage ? page.pageInfo.endCursor : null;
+    } while (cursor);
+  } catch (err) {
+    res.status(502).json({ error: `Jobber fetch failed: ${String(err)}` }); return;
+  }
+
+  // Find local jobs for this org not in the Jobber response
+  const localJobs = await db
+    .select({ id: jobs.id, jobberJobId: jobs.jobberJobId, title: jobs.title, jobNumber: jobs.jobNumber, jobStatus: jobs.jobStatus, jobberClientId: jobs.jobberClientId, createdAt: jobs.createdAt })
+    .from(jobs)
+    .where(eq(jobs.orgId, org.id));
+
+  const orphaned = localJobs.filter((j) => !jobberJobIds.has(j.jobberJobId));
+
+  if (orphaned.length === 0) {
+    res.json({ dryRun: !confirm, orphanedCount: 0, orphaned: [], message: "No orphaned jobs found — local DB matches Jobber." });
+    return;
+  }
+
+  if (!confirm) {
+    res.json({
+      dryRun: true,
+      orphanedCount: orphaned.length,
+      orphaned: orphaned.map((j) => ({
+        id: j.id,
+        jobberJobId: j.jobberJobId,
+        jobNumber: j.jobNumber,
+        title: j.title,
+        jobStatus: j.jobStatus,
+        jobberClientId: j.jobberClientId,
+        createdAt: j.createdAt,
+      })),
+      message: `${orphaned.length} orphaned job(s) found. Call with ?confirm=true to delete (also deletes their custom fields and line items). Run a sync afterward to update asset job counts.`,
+    });
+    return;
+  }
+
+  // Confirmed — delete orphaned jobs and their child records
+  const orphanedInternalIds = orphaned.map((j) => j.id);
+  await db.delete(jobCustomFields).where(inArray(jobCustomFields.jobId, orphanedInternalIds));
+  await db.delete(jobLineItems).where(inArray(jobLineItems.jobId, orphanedInternalIds));
+  await db.delete(jobs).where(inArray(jobs.id, orphanedInternalIds));
+
+  console.log(`[admin/reconcile] deleted ${orphaned.length} orphaned job(s) for org ${org.id}`);
+  res.json({
+    dryRun: false,
+    deleted: orphaned.length,
+    deletedJobs: orphaned.map((j) => ({ id: j.id, jobberJobId: j.jobberJobId, jobNumber: j.jobNumber, title: j.title })),
+    note: "Run a sync for this org to update asset job counts.",
+  });
 });
 
 // ---------- POST /api/admin/orgs/:id/force-refresh-token ----------
