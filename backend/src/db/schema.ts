@@ -18,6 +18,7 @@ export const jobberOrgs = pgTable("jobber_orgs", {
   subscriptionStatus: text("subscription_status").notNull().default("trial"),
   stripeCustomerId: text("stripe_customer_id"),
   stripeSubscriptionId: text("stripe_subscription_id"),
+  tags: text("tags").array().notNull().default([]),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 });
@@ -130,6 +131,13 @@ export const passwordResetTokens = pgTable("password_reset_tokens", {
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
+export const orgNotes = pgTable("org_notes", {
+  id: text("id").primaryKey(),
+  orgId: text("org_id").notNull(),
+  body: text("body").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
 export const smSupportEmails = pgTable("sm_support_emails", {
   id: text("id").primaryKey(),
   fromEmail: text("from_email").notNull(),
@@ -153,3 +161,4 @@ export type LoginEvent = typeof loginEvents.$inferSelect;
 export type Session = typeof sessions.$inferSelect;
 export type PasswordResetToken = typeof passwordResetTokens.$inferSelect;
 export type SupportEmail = typeof smSupportEmails.$inferSelect;
+export type OrgNote = typeof orgNotes.$inferSelect;

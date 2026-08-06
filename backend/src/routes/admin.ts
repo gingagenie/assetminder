@@ -1,8 +1,10 @@
 import { Router, Request, Response, NextFunction } from "express";
 import { db } from "../db/client";
-import { jobberOrgs, loginEvents, clients } from "../db/schema";
+import { jobberOrgs, loginEvents, clients, assets, jobs, orgNotes } from "../db/schema";
 import { eq, sql, desc } from "drizzle-orm";
 import { deleteOrgData } from "../lib/deleteOrg";
+import { forceRefreshToken } from "../lib/jobberToken";
+import crypto from "crypto";
 
 const router = Router();
 
@@ -40,19 +42,56 @@ function computeEffectiveStatus(org: { subscriptionStatus: string; trialStartedA
 router.get("/dashboard", async (_req: Request, res: Response) => {
   const orgs = await db.select().from(jobberOrgs).orderBy(sql`created_at desc`);
 
-  const enriched = orgs.map((org) => ({
-    id: org.id,
-    jobberAccountId: org.jobberAccountId,
-    displayName: org.name ?? org.lastKnownName ?? null,
-    disconnectedAt: org.disconnectedAt?.toISOString() ?? null,
-    createdAt: org.createdAt,
-    trialStartedAt: org.trialStartedAt,
-    trialEndsAt: computeTrialEnd(org),
-    subscriptionStatus: computeEffectiveStatus(org),
-    stripeCustomerId: org.stripeCustomerId,
-    stripeSubscriptionId: org.stripeSubscriptionId,
-    assetIdentifierField: org.assetIdentifierField,
-  }));
+  const now = Date.now();
+  const in24h = now + 24 * 60 * 60 * 1000;
+  const in3d = now + 3 * 24 * 60 * 60 * 1000;
+
+  const flagCounts = { disconnectedTrial: 0, tokenExpiring: 0, abandonedCheckout: 0, lapsingCold: 0 };
+
+  const enriched = orgs.map((org) => {
+    const trialEnd = computeTrialEnd(org);
+    const status = computeEffectiveStatus(org);
+    const orgFlags: string[] = [];
+
+    // Trial orgs that are currently disconnected (broken/unusable)
+    if (org.subscriptionStatus === "trial" && org.disconnectedAt) {
+      orgFlags.push("disconnectedTrial");
+      flagCounts.disconnectedTrial++;
+    }
+
+    // Token expiring within 24h on a connected org
+    if (!org.disconnectedAt && org.expiresAt && org.expiresAt.getTime() < in24h) {
+      orgFlags.push("tokenExpiring");
+      flagCounts.tokenExpiring++;
+    }
+
+    // Has Stripe customer but no active subscription (abandoned checkout)
+    if (org.stripeCustomerId && status !== "active") {
+      orgFlags.push("abandonedCheckout");
+      flagCounts.abandonedCheckout++;
+    }
+
+    // Trial ending within 3 days with no Stripe customer (cold lapse risk)
+    if (status === "trial" && trialEnd.getTime() < in3d && !org.stripeCustomerId) {
+      orgFlags.push("lapsingCold");
+      flagCounts.lapsingCold++;
+    }
+
+    return {
+      id: org.id,
+      jobberAccountId: org.jobberAccountId,
+      displayName: org.name ?? org.lastKnownName ?? null,
+      disconnectedAt: org.disconnectedAt?.toISOString() ?? null,
+      createdAt: org.createdAt,
+      trialStartedAt: org.trialStartedAt,
+      trialEndsAt: trialEnd,
+      subscriptionStatus: status,
+      stripeCustomerId: org.stripeCustomerId,
+      stripeSubscriptionId: org.stripeSubscriptionId,
+      assetIdentifierField: org.assetIdentifierField,
+      flags: orgFlags,
+    };
+  });
 
   const total = enriched.length;
   const active = enriched.filter((o) => o.subscriptionStatus === "active").length;
@@ -60,7 +99,7 @@ router.get("/dashboard", async (_req: Request, res: Response) => {
   const expired = enriched.filter((o) => o.subscriptionStatus === "expired").length;
   const mrr = active * MRR_PER_ACTIVE;
 
-  res.json({ stats: { total, active, trial, expired, mrr }, orgs: enriched });
+  res.json({ stats: { total, active, trial, expired, mrr, flags: flagCounts }, orgs: enriched });
 });
 
 // ---------- POST /api/admin/orgs/:id/extend-trial ----------
@@ -148,6 +187,127 @@ router.delete("/orgs/:id", async (req: Request, res: Response) => {
 
   await deleteOrgData(org.jobberAccountId);
   res.json({ ok: true });
+});
+
+// ---------- GET /api/admin/orgs/:id (detail) ----------
+
+const ALLOWED_TAGS = ["follow up", "suspicious", "VIP", "needs reconnect"];
+
+router.get("/orgs/:id", async (req: Request, res: Response) => {
+  const id = String(req.params.id);
+  const [org] = await db.select().from(jobberOrgs).where(eq(jobberOrgs.id, id)).limit(1);
+  if (!org) { res.status(404).json({ error: "Org not found" }); return; }
+
+  const [
+    [assetRow],
+    [clientRow],
+    [jobRow],
+    [lastLoginRow],
+    timeline,
+    notes,
+  ] = await Promise.all([
+    db.select({ count: sql<number>`count(*)::int` }).from(assets).where(eq(assets.orgId, org.id)),
+    db.select({ count: sql<number>`count(*)::int` }).from(clients).where(eq(clients.orgId, org.id)),
+    db.select({ count: sql<number>`count(*)::int` }).from(jobs).where(eq(jobs.orgId, org.id)),
+    db
+      .select({ createdAt: loginEvents.createdAt })
+      .from(loginEvents)
+      .where(eq(loginEvents.jobberAccountId, org.jobberAccountId))
+      .orderBy(desc(loginEvents.createdAt))
+      .limit(1),
+    db
+      .select({ id: loginEvents.id, eventType: loginEvents.eventType, createdAt: loginEvents.createdAt })
+      .from(loginEvents)
+      .where(eq(loginEvents.jobberAccountId, org.jobberAccountId))
+      .orderBy(desc(loginEvents.createdAt))
+      .limit(30),
+    db
+      .select()
+      .from(orgNotes)
+      .where(eq(orgNotes.orgId, org.id))
+      .orderBy(desc(orgNotes.createdAt)),
+  ]);
+
+  res.json({
+    id: org.id,
+    jobberAccountId: org.jobberAccountId,
+    displayName: org.name ?? org.lastKnownName ?? null,
+    email: org.email,
+    createdAt: org.createdAt,
+    trialStartedAt: org.trialStartedAt,
+    trialEndsAt: computeTrialEnd(org),
+    subscriptionStatus: computeEffectiveStatus(org),
+    disconnectedAt: org.disconnectedAt,
+    expiresAt: org.expiresAt,
+    updatedAt: org.updatedAt,
+    stripeCustomerId: org.stripeCustomerId,
+    stripeSubscriptionId: org.stripeSubscriptionId,
+    assetIdentifierField: org.assetIdentifierField,
+    tags: org.tags ?? [],
+    activity: {
+      assetCount: assetRow?.count ?? 0,
+      clientCount: clientRow?.count ?? 0,
+      jobCount: jobRow?.count ?? 0,
+      lastLoginAt: lastLoginRow?.createdAt ?? null,
+    },
+    timeline,
+    notes,
+  });
+});
+
+// ---------- POST /api/admin/orgs/:id/notes ----------
+
+router.post("/orgs/:id/notes", async (req: Request, res: Response) => {
+  const id = String(req.params.id);
+  const { body } = req.body as { body?: string };
+  if (!body?.trim()) { res.status(400).json({ error: "Note body is required" }); return; }
+
+  const [org] = await db.select({ id: jobberOrgs.id }).from(jobberOrgs).where(eq(jobberOrgs.id, id)).limit(1);
+  if (!org) { res.status(404).json({ error: "Org not found" }); return; }
+
+  const [note] = await db
+    .insert(orgNotes)
+    .values({ id: crypto.randomUUID(), orgId: org.id, body: body.trim() })
+    .returning();
+
+  res.json({ ok: true, note });
+});
+
+// ---------- DELETE /api/admin/orgs/:id/notes/:noteId ----------
+
+router.delete("/orgs/:id/notes/:noteId", async (req: Request, res: Response) => {
+  const noteId = String(req.params.noteId);
+  await db.delete(orgNotes).where(eq(orgNotes.id, noteId));
+  res.json({ ok: true });
+});
+
+// ---------- PATCH /api/admin/orgs/:id/tags ----------
+
+router.patch("/orgs/:id/tags", async (req: Request, res: Response) => {
+  const id = String(req.params.id);
+  const { tags } = req.body as { tags?: string[] };
+  if (!Array.isArray(tags)) { res.status(400).json({ error: "tags must be an array" }); return; }
+
+  const validTags = tags.filter((t) => ALLOWED_TAGS.includes(t));
+
+  await db.update(jobberOrgs).set({ tags: validTags, updatedAt: new Date() }).where(eq(jobberOrgs.id, id));
+  res.json({ ok: true, tags: validTags });
+});
+
+// ---------- POST /api/admin/orgs/:id/force-refresh-token ----------
+
+router.post("/orgs/:id/force-refresh-token", async (req: Request, res: Response) => {
+  const id = String(req.params.id);
+  const [org] = await db.select({ jobberAccountId: jobberOrgs.jobberAccountId, disconnectedAt: jobberOrgs.disconnectedAt }).from(jobberOrgs).where(eq(jobberOrgs.id, id)).limit(1);
+  if (!org) { res.status(404).json({ error: "Org not found" }); return; }
+  if (org.disconnectedAt) { res.status(409).json({ error: "Org is disconnected — cannot refresh token" }); return; }
+
+  try {
+    await forceRefreshToken(org.jobberAccountId);
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(502).json({ error: String(err) });
+  }
 });
 
 export default router;

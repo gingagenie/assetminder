@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { useLocation } from "react-router-dom";
 import { API } from "@/lib/api";
+import OrgDetailPanel from "@/components/OrgDetailPanel";
 
 interface LoginEvent {
   id: string;
@@ -22,6 +23,14 @@ interface OrgRow {
   stripeCustomerId: string | null;
   stripeSubscriptionId: string | null;
   assetIdentifierField: string | null;
+  flags: string[];
+}
+
+interface FlagCounts {
+  disconnectedTrial: number;
+  tokenExpiring: number;
+  abandonedCheckout: number;
+  lapsingCold: number;
 }
 
 interface Stats {
@@ -30,6 +39,7 @@ interface Stats {
   trial: number;
   expired: number;
   mrr: number;
+  flags: FlagCounts;
 }
 
 const STATUS_STYLES: Record<string, string> = {
@@ -37,6 +47,39 @@ const STATUS_STYLES: Record<string, string> = {
   trial:   "bg-blue-100 text-blue-700",
   expired: "bg-red-100 text-red-700",
 };
+
+const HEALTH_FLAGS = [
+  {
+    key: "disconnectedTrial",
+    label: "disconnected mid-trial",
+    color: "bg-orange-900/50 text-orange-300 border-orange-700/50 hover:bg-orange-800/60",
+    activeColor: "bg-orange-700/70 text-orange-200 border-orange-600 hover:bg-orange-700/80",
+    dot: "bg-orange-400",
+  },
+  {
+    key: "tokenExpiring",
+    label: "token expiring <24h",
+    color: "bg-yellow-900/50 text-yellow-300 border-yellow-700/50 hover:bg-yellow-800/60",
+    activeColor: "bg-yellow-700/70 text-yellow-200 border-yellow-600 hover:bg-yellow-700/80",
+    dot: "bg-yellow-400",
+  },
+  {
+    key: "abandonedCheckout",
+    label: "abandoned checkout",
+    color: "bg-purple-900/50 text-purple-300 border-purple-700/50 hover:bg-purple-800/60",
+    activeColor: "bg-purple-700/70 text-purple-200 border-purple-600 hover:bg-purple-700/80",
+    dot: "bg-purple-400",
+  },
+  {
+    key: "lapsingCold",
+    label: "lapsing cold <3d",
+    color: "bg-rose-900/50 text-rose-300 border-rose-700/50 hover:bg-rose-800/60",
+    activeColor: "bg-rose-700/70 text-rose-200 border-rose-600 hover:bg-rose-700/80",
+    dot: "bg-rose-400",
+  },
+] as const;
+
+type FlagKey = typeof HEALTH_FLAGS[number]["key"];
 
 function fmt(iso: string) {
   return new Date(iso).toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" });
@@ -51,7 +94,12 @@ export default function Admin() {
   const [loginHistory, setLoginHistory] = useState<LoginEvent[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [actionPending, setActionPending] = useState<string | null>(null); // orgId of in-flight action
+  const [actionPending, setActionPending] = useState<string | null>(null);
+  const [activeFlag, setActiveFlag] = useState<FlagKey | null>(null);
+  const [selectedOrgId, setSelectedOrgId] = useState<string | null>(null);
+  const [search, setSearch] = useState("");
+  const [statusFilter, setStatusFilter] = useState<string | null>(null);
+  const [sort, setSort] = useState<{ col: "joined" | "trialEnds" | "status"; dir: "asc" | "desc" } | null>(null);
 
   async function load() {
     setLoading(true);
@@ -106,6 +154,40 @@ export default function Admin() {
     }
   }
 
+  function toggleFlag(key: FlagKey) {
+    setActiveFlag((prev) => (prev === key ? null : key));
+  }
+
+  function toggleSort(col: "joined" | "trialEnds" | "status") {
+    setSort((prev) => prev?.col === col ? { col, dir: prev.dir === "asc" ? "desc" : "asc" } : { col, dir: "asc" });
+  }
+
+  function sortIcon(col: "joined" | "trialEnds" | "status") {
+    if (sort?.col !== col) return <span className="ml-1 text-slate-700">↕</span>;
+    return <span className="ml-1 text-slate-400">{sort.dir === "asc" ? "↑" : "↓"}</span>;
+  }
+
+  const searchLower = search.trim().toLowerCase();
+
+  const displayedOrgs = [...orgs]
+    .filter((o) => !activeFlag || o.flags.includes(activeFlag))
+    .filter((o) => !statusFilter || o.subscriptionStatus === statusFilter)
+    .filter((o) => {
+      if (!searchLower) return true;
+      return (
+        (o.displayName?.toLowerCase().includes(searchLower) ?? false) ||
+        o.jobberAccountId.toLowerCase().includes(searchLower)
+      );
+    })
+    .sort((a, b) => {
+      if (!sort) return 0;
+      const dir = sort.dir === "asc" ? 1 : -1;
+      if (sort.col === "joined") return dir * (new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
+      if (sort.col === "trialEnds") return dir * (new Date(a.trialEndsAt).getTime() - new Date(b.trialEndsAt).getTime());
+      if (sort.col === "status") return dir * a.subscriptionStatus.localeCompare(b.subscriptionStatus);
+      return 0;
+    });
+
   if (loading) return (
     <div style={{ fontFamily: "Inter, sans-serif" }} className="min-h-screen bg-slate-950 flex items-center justify-center">
       <p className="text-slate-400 text-sm">Loading…</p>
@@ -117,6 +199,9 @@ export default function Admin() {
       <p className="text-red-400 text-sm">{error}</p>
     </div>
   );
+
+  const flagCounts = stats?.flags ?? { disconnectedTrial: 0, tokenExpiring: 0, abandonedCheckout: 0, lapsingCold: 0 };
+  const hasAnyFlag = Object.values(flagCounts).some((n) => n > 0);
 
   return (
     <div style={{ fontFamily: "Inter, sans-serif" }} className="min-h-screen bg-slate-950 text-slate-100">
@@ -133,7 +218,7 @@ export default function Admin() {
         </button>
       </header>
 
-      <main className="max-w-7xl mx-auto px-8 py-8 space-y-8">
+      <main className="max-w-7xl mx-auto px-8 py-8 space-y-6">
 
         {/* Stats */}
         {stats && (
@@ -153,42 +238,118 @@ export default function Admin() {
           </div>
         )}
 
+        {/* Health flags */}
+        {hasAnyFlag && (
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="text-xs text-slate-500 font-medium uppercase tracking-wide mr-1">Needs attention:</span>
+            {HEALTH_FLAGS.map((flag) => {
+              const count = flagCounts[flag.key];
+              if (count === 0) return null;
+              const isActive = activeFlag === flag.key;
+              return (
+                <button
+                  key={flag.key}
+                  onClick={() => toggleFlag(flag.key)}
+                  className={`inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1 rounded-full border transition-colors ${isActive ? flag.activeColor : flag.color}`}
+                >
+                  <span className={`inline-block w-1.5 h-1.5 rounded-full ${flag.dot}`} />
+                  {count} {flag.label}
+                </button>
+              );
+            })}
+            {activeFlag && (
+              <button
+                onClick={() => setActiveFlag(null)}
+                className="text-xs text-slate-500 hover:text-slate-300 transition-colors ml-1"
+              >
+                Clear filter ×
+              </button>
+            )}
+          </div>
+        )}
+
         {/* Org table */}
         <div className="bg-slate-900 rounded-xl border border-slate-800 overflow-hidden">
+
+          {/* Filter bar */}
+          <div className="px-5 py-3 border-b border-slate-800 flex items-center gap-3 flex-wrap">
+            <input
+              type="text"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Search by name or Jobber ID…"
+              className="text-xs bg-slate-800 border border-slate-700 rounded-md px-3 py-1.5 text-slate-200 placeholder:text-slate-600 focus:outline-none focus:border-slate-500 w-56"
+            />
+            <div className="flex items-center gap-1">
+              {(["active", "trial", "expired"] as const).map((s) => (
+                <button
+                  key={s}
+                  onClick={() => setStatusFilter((prev) => prev === s ? null : s)}
+                  className={`text-xs px-2.5 py-1 rounded-full border transition-colors ${statusFilter === s ? STATUS_STYLES[s] + " border-transparent font-semibold" : "border-slate-700 text-slate-500 hover:text-slate-300"}`}
+                >
+                  {s}
+                </button>
+              ))}
+            </div>
+            {(search || statusFilter) && (
+              <button onClick={() => { setSearch(""); setStatusFilter(null); }} className="text-xs text-slate-600 hover:text-slate-400 transition-colors">
+                Clear ×
+              </button>
+            )}
+            <span className="ml-auto text-xs text-slate-600">{displayedOrgs.length} org{displayedOrgs.length !== 1 ? "s" : ""}</span>
+          </div>
+
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-slate-800 text-xs text-slate-500 uppercase tracking-wide">
                 <th className="text-left px-5 py-3 font-medium">Org / Jobber ID</th>
-                <th className="text-left px-5 py-3 font-medium">Status</th>
-                <th className="text-left px-5 py-3 font-medium hidden lg:table-cell">Trial ends</th>
+                <th className="text-left px-5 py-3 font-medium cursor-pointer select-none hover:text-slate-300" onClick={() => toggleSort("status")}>
+                  Status{sortIcon("status")}
+                </th>
+                <th className="text-left px-5 py-3 font-medium hidden lg:table-cell cursor-pointer select-none hover:text-slate-300" onClick={() => toggleSort("trialEnds")}>
+                  Trial ends{sortIcon("trialEnds")}
+                </th>
                 <th className="text-left px-5 py-3 font-medium hidden xl:table-cell">Stripe customer</th>
                 <th className="text-left px-5 py-3 font-medium hidden xl:table-cell">Stripe sub</th>
-                <th className="text-left px-5 py-3 font-medium hidden md:table-cell">Joined</th>
+                <th className="text-left px-5 py-3 font-medium hidden md:table-cell cursor-pointer select-none hover:text-slate-300" onClick={() => toggleSort("joined")}>
+                  Joined{sortIcon("joined")}
+                </th>
                 <th className="text-right px-5 py-3 font-medium">Actions</th>
               </tr>
             </thead>
             <tbody>
-              {orgs.map((org, i) => {
+              {displayedOrgs.map((org, i) => {
                 const pending = actionPending === org.id;
                 return (
                   <tr
                     key={org.id}
-                    className={`border-b border-slate-800/50 ${i % 2 === 0 ? "" : "bg-slate-900/50"} hover:bg-slate-800/40 transition-colors`}
+                    onClick={() => setSelectedOrgId(org.id)}
+                    className={`border-b border-slate-800/50 ${i % 2 === 0 ? "" : "bg-slate-900/50"} hover:bg-slate-800/40 transition-colors cursor-pointer`}
                   >
                     {/* Org name / ID */}
                     <td className="px-5 py-3">
-                      {org.displayName ? (
-                        <p className="text-sm font-medium text-slate-200 truncate max-w-[200px]">
-                          {org.displayName}
-                        </p>
-                      ) : (
-                        <p className="text-xs text-slate-500 truncate max-w-[200px]">
-                          {org.disconnectedAt ? (
-                            <span className="inline-block px-1.5 py-0.5 rounded bg-slate-800 text-slate-500 mr-1">Disconnected</span>
-                          ) : null}
-                          …{org.jobberAccountId.slice(-12)}
-                        </p>
-                      )}
+                      <div className="flex items-center gap-2">
+                        {org.displayName ? (
+                          <p className="text-sm font-medium text-slate-200 truncate max-w-[200px]">
+                            {org.displayName}
+                          </p>
+                        ) : (
+                          <p className="text-xs text-slate-500 truncate max-w-[200px]">
+                            {org.disconnectedAt ? (
+                              <span className="inline-block px-1.5 py-0.5 rounded bg-slate-800 text-slate-500 mr-1">Disconnected</span>
+                            ) : null}
+                            …{org.jobberAccountId.slice(-12)}
+                          </p>
+                        )}
+                        {/* Inline flag indicators */}
+                        {org.flags.map((fk) => {
+                          const fd = HEALTH_FLAGS.find((f) => f.key === fk);
+                          if (!fd) return null;
+                          return (
+                            <span key={fk} className={`inline-block w-1.5 h-1.5 rounded-full flex-shrink-0 ${fd.dot}`} title={fd.label} />
+                          );
+                        })}
+                      </div>
                       <p className="font-mono text-xs text-slate-600 truncate max-w-[200px] mt-0.5" title={org.jobberAccountId}>
                         {org.jobberAccountId}
                       </p>
@@ -228,7 +389,7 @@ export default function Admin() {
                     </td>
 
                     {/* Actions */}
-                    <td className="px-5 py-3">
+                    <td className="px-5 py-3" onClick={(e) => e.stopPropagation()}>
                       <div className="flex items-center justify-end gap-2 flex-wrap">
                         <button
                           disabled={pending || org.subscriptionStatus !== "expired"}
@@ -265,9 +426,11 @@ export default function Admin() {
                 );
               })}
 
-              {orgs.length === 0 && (
+              {displayedOrgs.length === 0 && (
                 <tr>
-                  <td colSpan={7} className="px-5 py-10 text-center text-slate-600 text-sm">No orgs yet.</td>
+                  <td colSpan={7} className="px-5 py-10 text-center text-slate-600 text-sm">
+                    {(activeFlag || search || statusFilter) ? "No orgs match the current filters." : "No orgs yet."}
+                  </td>
                 </tr>
               )}
             </tbody>
@@ -317,6 +480,15 @@ export default function Admin() {
         </div>
 
       </main>
+
+      {selectedOrgId && (
+        <OrgDetailPanel
+          orgId={selectedOrgId}
+          adminKey={adminKey}
+          onClose={() => setSelectedOrgId(null)}
+          onRefreshTable={load}
+        />
+      )}
     </div>
   );
 }

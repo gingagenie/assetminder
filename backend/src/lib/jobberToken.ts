@@ -33,6 +33,17 @@ export async function getValidToken(jobberAccountId: string): Promise<string> {
   return refreshToken(org);
 }
 
+export async function forceRefreshToken(jobberAccountId: string): Promise<void> {
+  const [org] = await db
+    .select()
+    .from(jobberOrgs)
+    .where(eq(jobberOrgs.jobberAccountId, jobberAccountId))
+    .limit(1);
+  if (!org) throw new Error(`No org found for ${jobberAccountId}`);
+  if (org.disconnectedAt) throw new Error("Org is disconnected — no token to refresh");
+  await refreshToken(org);
+}
+
 async function refreshToken(org: JobberOrg): Promise<string> {
   const res = await fetch(JOBBER_TOKEN_URL, {
     method: "POST",
