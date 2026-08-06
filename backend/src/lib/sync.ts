@@ -1,7 +1,7 @@
 import crypto from "crypto";
 import { db } from "../db/client";
-import { jobberOrgs, clients, jobs, jobCustomFields, jobLineItems } from "../db/schema";
-import { eq } from "drizzle-orm";
+import { jobberOrgs, clients, assets, jobs, jobCustomFields, jobLineItems } from "../db/schema";
+import { eq, inArray, and } from "drizzle-orm";
 import { getValidToken } from "./jobberToken";
 import { deleteOrgData } from "./deleteOrg";
 
@@ -129,6 +129,7 @@ const CLIENTS_QUERY = `
 async function syncClients(accessToken: string, orgId: string): Promise<number> {
   let cursor: string | null = null;
   let total = 0;
+  const seenJobberClientIds = new Set<string>();
 
   do {
     const data: { clients: { nodes: JobberClientNode[]; pageInfo: PageInfo } } = await gql(
@@ -141,6 +142,7 @@ async function syncClients(accessToken: string, orgId: string): Promise<number> 
     if (nodes.length === 0) break;
 
     for (const c of nodes) {
+      seenJobberClientIds.add(c.id);
       const row = {
         id: crypto.randomUUID(),
         orgId,
@@ -169,6 +171,25 @@ async function syncClients(accessToken: string, orgId: string): Promise<number> 
     console.log(`[sync] clients page done, total so far: ${total}`);
     if (cursor) await sleep(PAGE_DELAY_MS);
   } while (cursor);
+
+  // Reconciliation: remove local clients no longer present in Jobber.
+  // Assets referencing deleted clients have jobberClientId nulled — the asset
+  // row itself is preserved (physical objects outlive CRM records).
+  const localClients = await db
+    .select({ id: clients.id, jobberClientId: clients.jobberClientId })
+    .from(clients)
+    .where(eq(clients.orgId, orgId));
+
+  const orphanedClients = localClients.filter((c) => !seenJobberClientIds.has(c.jobberClientId));
+
+  if (orphanedClients.length > 0) {
+    const orphanedJobberIds = orphanedClients.map((c) => c.jobberClientId);
+    const orphanedInternalIds = orphanedClients.map((c) => c.id);
+    await db.update(assets).set({ jobberClientId: null })
+      .where(and(eq(assets.orgId, orgId), inArray(assets.jobberClientId, orphanedJobberIds)));
+    await db.delete(clients).where(inArray(clients.id, orphanedInternalIds));
+    console.log(`[sync] reconciled ${orphanedClients.length} orphaned client(s) for org ${orgId}`);
+  }
 
   return total;
 }
@@ -249,11 +270,12 @@ async function fetchLineItemsForJob(accessToken: string, jobberJobId: string): P
 async function syncJobs(accessToken: string, orgId: string): Promise<{ jobsCount: number; fieldsCount: number }> {
   // Pre-load existing jobberJobIds so we can skip line item fetching for known jobs
   const existingRows = await db
-    .select({ jobberJobId: jobs.jobberJobId })
+    .select({ id: jobs.id, jobberJobId: jobs.jobberJobId })
     .from(jobs)
     .where(eq(jobs.orgId, orgId));
   const existingJobberIds = new Set(existingRows.map((r) => r.jobberJobId));
 
+  const seenJobberJobIds = new Set<string>();
   let cursor: string | null = null;
   let jobsCount = 0;
   let fieldsCount = 0;
@@ -270,6 +292,7 @@ async function syncJobs(accessToken: string, orgId: string): Promise<{ jobsCount
     if (nodes.length === 0) break;
 
     for (const j of nodes) {
+      seenJobberJobIds.add(j.id);
       const isNew = !existingJobberIds.has(j.id);
 
       const jobRow = {
@@ -355,6 +378,18 @@ async function syncJobs(accessToken: string, orgId: string): Promise<{ jobsCount
     }
 
     if (i < newJobs.length - 1) await sleep(PAGE_DELAY_MS);
+  }
+
+  // Reconciliation: remove local jobs no longer present in Jobber.
+  // Child records (custom fields, line items) are deleted first.
+  const orphanedJobs = existingRows.filter((r) => !seenJobberJobIds.has(r.jobberJobId));
+
+  if (orphanedJobs.length > 0) {
+    const orphanedInternalIds = orphanedJobs.map((r) => r.id);
+    await db.delete(jobCustomFields).where(inArray(jobCustomFields.jobId, orphanedInternalIds));
+    await db.delete(jobLineItems).where(inArray(jobLineItems.jobId, orphanedInternalIds));
+    await db.delete(jobs).where(inArray(jobs.id, orphanedInternalIds));
+    console.log(`[sync] reconciled ${orphanedJobs.length} orphaned job(s) for org ${orgId}`);
   }
 
   return { jobsCount, fieldsCount };
