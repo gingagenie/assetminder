@@ -189,6 +189,43 @@ router.delete("/orgs/:id", async (req: Request, res: Response) => {
   res.json({ ok: true });
 });
 
+// ---------- POST /api/admin/bulk/extend-trial ----------
+
+router.post("/bulk/extend-trial", async (req: Request, res: Response) => {
+  const { ids } = req.body as { ids?: string[] };
+  if (!Array.isArray(ids) || ids.length === 0) { res.status(400).json({ error: "ids required" }); return; }
+
+  let extended = 0;
+  for (const id of ids) {
+    const [org] = await db.select().from(jobberOrgs).where(eq(jobberOrgs.id, id)).limit(1);
+    if (!org || org.subscriptionStatus !== "expired") continue;
+    await db.update(jobberOrgs)
+      .set({ trialStartedAt: new Date(), subscriptionStatus: "trial", updatedAt: new Date() })
+      .where(eq(jobberOrgs.id, id));
+    extended++;
+  }
+  res.json({ ok: true, extended, skipped: ids.length - extended });
+});
+
+// ---------- POST /api/admin/bulk/add-tag ----------
+
+router.post("/bulk/add-tag", async (req: Request, res: Response) => {
+  const { ids, tag } = req.body as { ids?: string[]; tag?: string };
+  if (!Array.isArray(ids) || ids.length === 0) { res.status(400).json({ error: "ids required" }); return; }
+  if (!tag || !ALLOWED_TAGS.includes(tag)) { res.status(400).json({ error: "Invalid tag" }); return; }
+
+  let count = 0;
+  for (const id of ids) {
+    const [org] = await db.select({ tags: jobberOrgs.tags }).from(jobberOrgs).where(eq(jobberOrgs.id, id)).limit(1);
+    if (!org) continue;
+    const existing = org.tags ?? [];
+    if (existing.includes(tag)) continue;
+    await db.update(jobberOrgs).set({ tags: [...existing, tag], updatedAt: new Date() }).where(eq(jobberOrgs.id, id));
+    count++;
+  }
+  res.json({ ok: true, count });
+});
+
 // ---------- GET /api/admin/orgs/:id (detail) ----------
 
 const ALLOWED_TAGS = ["follow up", "suspicious", "VIP", "needs reconnect"];

@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useLocation } from "react-router-dom";
 import { API } from "@/lib/api";
 import OrgDetailPanel from "@/components/OrgDetailPanel";
@@ -100,6 +100,22 @@ export default function Admin() {
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<string | null>(null);
   const [sort, setSort] = useState<{ col: "joined" | "trialEnds" | "status"; dir: "asc" | "desc" } | null>(null);
+  const [selectionMode, setSelectionMode] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [tagPickerOpen, setTagPickerOpen] = useState(false);
+  const [bulkPending, setBulkPending] = useState(false);
+  const tagPickerRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!tagPickerOpen) return;
+    function handleClickOutside(e: MouseEvent) {
+      if (tagPickerRef.current && !tagPickerRef.current.contains(e.target as Node)) {
+        setTagPickerOpen(false);
+      }
+    }
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, [tagPickerOpen]);
 
   async function load() {
     setLoading(true);
@@ -156,6 +172,75 @@ export default function Admin() {
 
   function toggleFlag(key: FlagKey) {
     setActiveFlag((prev) => (prev === key ? null : key));
+  }
+
+  function toggleSelect(id: string) {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      next.has(id) ? next.delete(id) : next.add(id);
+      return next;
+    });
+  }
+
+  function selectAll() {
+    setSelectedIds(new Set(displayedOrgs.map((o) => o.id)));
+  }
+
+  function clearSelection() {
+    setSelectedIds(new Set());
+  }
+
+  function exitSelectionMode() {
+    setSelectionMode(false);
+    setSelectedIds(new Set());
+    setTagPickerOpen(false);
+  }
+
+  async function handleBulkExtend() {
+    if (bulkPending || selectedIds.size === 0) return;
+    setBulkPending(true);
+    try {
+      const res = await fetch(`${API}/api/admin/bulk/extend-trial?key=${encodeURIComponent(adminKey)}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ids: [...selectedIds] }),
+      });
+      const data = (await res.json()) as { extended?: number; skipped?: number };
+      if (res.ok) {
+        alert(`Extended ${data.extended ?? 0} org(s). ${data.skipped ? `${data.skipped} skipped (not expired).` : ""}`);
+        clearSelection();
+        await load();
+      } else {
+        alert("Bulk extend failed.");
+      }
+    } catch {
+      alert("Network error.");
+    } finally {
+      setBulkPending(false);
+    }
+  }
+
+  async function handleBulkTag(tag: string) {
+    if (bulkPending || selectedIds.size === 0) return;
+    setTagPickerOpen(false);
+    setBulkPending(true);
+    try {
+      const res = await fetch(`${API}/api/admin/bulk/add-tag?key=${encodeURIComponent(adminKey)}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ids: [...selectedIds], tag }),
+      });
+      if (res.ok) {
+        clearSelection();
+        await load();
+      } else {
+        alert("Bulk tag failed.");
+      }
+    } catch {
+      alert("Network error.");
+    } finally {
+      setBulkPending(false);
+    }
   }
 
   function toggleSort(col: "joined" | "trialEnds" | "status") {
@@ -350,11 +435,70 @@ export default function Admin() {
               </button>
             )}
             <span className="ml-auto text-xs text-slate-600">{displayedOrgs.length} org{displayedOrgs.length !== 1 ? "s" : ""}</span>
+            <button
+              onClick={() => selectionMode ? exitSelectionMode() : setSelectionMode(true)}
+              className={`text-xs px-2.5 py-1.5 rounded-md border transition-colors ${selectionMode ? "bg-slate-700 border-slate-600 text-slate-200" : "border-slate-700 text-slate-500 hover:text-slate-300 hover:border-slate-600"}`}
+            >
+              {selectionMode ? "Done" : "Select"}
+            </button>
           </div>
+
+          {/* Bulk action bar — only shown when rows are selected */}
+          {selectionMode && selectedIds.size > 0 && (
+            <div className="px-5 py-2 border-b border-slate-800 bg-slate-800/40 flex items-center gap-3">
+              <span className="text-xs text-slate-300 font-medium">{selectedIds.size} selected</span>
+              <button
+                onClick={handleBulkExtend}
+                disabled={bulkPending}
+                className="text-xs px-2.5 py-1 rounded-md bg-blue-900/60 text-blue-300 hover:bg-blue-800/70 transition-colors disabled:opacity-40"
+              >
+                +14 days
+              </button>
+              <div ref={tagPickerRef} className="relative">
+                <button
+                  onClick={() => setTagPickerOpen((p) => !p)}
+                  disabled={bulkPending}
+                  className="text-xs px-2.5 py-1 rounded-md bg-slate-700 text-slate-300 hover:bg-slate-600 transition-colors disabled:opacity-40"
+                >
+                  Tag ▾
+                </button>
+                {tagPickerOpen && (
+                  <div className="absolute top-full left-0 mt-1 bg-slate-800 border border-slate-700 rounded-lg shadow-xl z-20 py-1 min-w-[160px]">
+                    {(["follow up", "suspicious", "VIP", "needs reconnect"] as const).map((tag) => (
+                      <button
+                        key={tag}
+                        onClick={() => handleBulkTag(tag)}
+                        className="w-full text-left px-4 py-2 text-xs text-slate-300 hover:bg-slate-700 transition-colors"
+                      >
+                        {tag}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+              <button
+                onClick={clearSelection}
+                className="text-xs text-slate-500 hover:text-slate-300 transition-colors ml-1"
+              >
+                Deselect all
+              </button>
+            </div>
+          )}
 
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-slate-800 text-xs text-slate-500 uppercase tracking-wide">
+                {selectionMode && (
+                  <th className="px-4 py-3 w-10">
+                    <input
+                      type="checkbox"
+                      ref={(el) => { if (el) el.indeterminate = selectedIds.size > 0 && selectedIds.size < displayedOrgs.length; }}
+                      checked={displayedOrgs.length > 0 && selectedIds.size === displayedOrgs.length}
+                      onChange={(e) => e.target.checked ? selectAll() : clearSelection()}
+                      className="rounded border-slate-600 bg-slate-800 accent-blue-500 cursor-pointer"
+                    />
+                  </th>
+                )}
                 <th className="text-left px-5 py-3 font-medium">Org / Jobber ID</th>
                 <th className="text-left px-5 py-3 font-medium cursor-pointer select-none hover:text-slate-300" onClick={() => toggleSort("status")}>
                   Status{sortIcon("status")}
@@ -376,9 +520,20 @@ export default function Admin() {
                 return (
                   <tr
                     key={org.id}
-                    onClick={() => setSelectedOrgId(org.id)}
-                    className={`border-b border-slate-800/50 ${i % 2 === 0 ? "" : "bg-slate-900/50"} hover:bg-slate-800/40 transition-colors cursor-pointer`}
+                    onClick={() => selectionMode ? toggleSelect(org.id) : setSelectedOrgId(org.id)}
+                    className={`border-b border-slate-800/50 ${i % 2 === 0 ? "" : "bg-slate-900/50"} ${selectionMode && selectedIds.has(org.id) ? "bg-blue-950/30" : ""} hover:bg-slate-800/40 transition-colors cursor-pointer`}
                   >
+                    {/* Checkbox (selection mode only) */}
+                    {selectionMode && (
+                      <td className="px-4 py-3" onClick={(e) => { e.stopPropagation(); toggleSelect(org.id); }}>
+                        <input
+                          type="checkbox"
+                          checked={selectedIds.has(org.id)}
+                          onChange={() => {}}
+                          className="rounded border-slate-600 bg-slate-800 accent-blue-500 cursor-pointer"
+                        />
+                      </td>
+                    )}
                     {/* Org name / ID */}
                     <td className="px-5 py-3">
                       <div className="flex items-center gap-2">
@@ -481,7 +636,7 @@ export default function Admin() {
 
               {displayedOrgs.length === 0 && (
                 <tr>
-                  <td colSpan={7} className="px-5 py-10 text-center text-slate-600 text-sm">
+                  <td colSpan={selectionMode ? 8 : 7} className="px-5 py-10 text-center text-slate-600 text-sm">
                     {(activeFlag || search || statusFilter) ? "No orgs match the current filters." : "No orgs yet."}
                   </td>
                 </tr>
