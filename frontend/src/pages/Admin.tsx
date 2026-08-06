@@ -238,6 +238,59 @@ export default function Admin() {
           </div>
         )}
 
+        {/* Funnel strip */}
+        {stats && (() => {
+          const thirtyDaysAgo = Date.now() - 30 * 24 * 60 * 60 * 1000;
+          const recent = orgs.filter((o) => new Date(o.createdAt).getTime() > thirtyDaysAgo);
+          const recentActive = recent.filter((o) => o.subscriptionStatus === "active").length;
+          const convPct = stats.total > 0 ? Math.round((stats.active / stats.total) * 100) : 0;
+          const recentPct = recent.length > 0 ? Math.round((recentActive / recent.length) * 100) : null;
+
+          const stages: { label: string; count: number; filter: string | null }[] = [
+            { label: "Signups",  count: stats.total,   filter: null },
+            { label: "Trial",    count: stats.trial,   filter: "trial" },
+            { label: "Active",   count: stats.active,  filter: "active" },
+            { label: "Expired",  count: stats.expired, filter: "expired" },
+          ];
+
+          return (
+            <div className="bg-slate-900 rounded-xl border border-slate-800 px-5 py-3 flex items-center gap-1 flex-wrap">
+              {stages.map((stage, i) => {
+                const isActive = statusFilter === stage.filter;
+                return (
+                  <div key={stage.label} className="flex items-center gap-1">
+                    {i > 0 && <span className="text-slate-700 text-sm px-1">→</span>}
+                    <button
+                      onClick={() => setStatusFilter(stage.filter === null ? null : (statusFilter === stage.filter ? null : stage.filter as "trial" | "active" | "expired"))}
+                      className={`flex items-center gap-2 px-3 py-1.5 rounded-lg transition-colors ${isActive ? "bg-slate-700" : "hover:bg-slate-800/60"}`}
+                    >
+                      <span className={`text-lg font-bold leading-none ${isActive ? "text-white" : "text-slate-300"}`}>{stage.count}</span>
+                      <span className={`text-xs ${isActive ? "text-slate-300" : "text-slate-500"}`}>{stage.label}</span>
+                    </button>
+                  </div>
+                );
+              })}
+
+              <div className="ml-auto pl-5 border-l border-slate-800 flex items-center gap-4">
+                <div className="text-center">
+                  <p className="text-xs text-slate-500 mb-0.5">All-time conv.</p>
+                  <p className="text-sm font-semibold text-white">
+                    {convPct}% <span className="text-xs font-normal text-slate-600">({stats.active}/{stats.total})</span>
+                  </p>
+                </div>
+                {recentPct !== null && recent.length > 0 && (
+                  <div className="text-center">
+                    <p className="text-xs text-slate-500 mb-0.5">Last 30d conv.</p>
+                    <p className="text-sm font-semibold text-white">
+                      {recentPct}% <span className="text-xs font-normal text-slate-600">({recentActive}/{recent.length})</span>
+                    </p>
+                  </div>
+                )}
+              </div>
+            </div>
+          );
+        })()}
+
         {/* Health flags */}
         {hasAnyFlag && (
           <div className="flex items-center gap-2 flex-wrap">
