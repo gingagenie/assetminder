@@ -65,3 +65,14 @@ services:
       - type: rewrite
         source: /*
         destination: /index.html
+
+  - type: web
+    name: blog-minderapps
+    env: static
+    rootDir: blog-site
+    buildCommand: npm install && npm run build
+    staticPublishPath: dist
+    routes:
+      - type: rewrite
+        source: /*
+        destination: /index.html

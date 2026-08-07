@@ -46,7 +46,7 @@ export default function Landing() {
       <header style={{ backgroundColor: "#1e293b" }}>
         <div className="max-w-5xl mx-auto px-6 py-4 flex items-center justify-between">
           <span className="text-white font-semibold text-lg tracking-tight">AssetMinder</span>
-          <Link to="/blog" className="text-slate-300 hover:text-white text-sm font-medium transition-colors">Blog</Link>
+          <a href="https://blog.minderapps.io" className="text-slate-300 hover:text-white text-sm font-medium transition-colors">Blog</a>
         </div>
       </header>
 
