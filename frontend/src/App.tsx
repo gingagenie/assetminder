@@ -20,6 +20,8 @@ import Admin from "@/pages/Admin";
 import UnassignedJobs from "@/pages/UnassignedJobs";
 import Disconnected from "@/pages/Disconnected";
 import ClientAssets from "@/pages/ClientAssets";
+import BlogIndex from "@/pages/BlogIndex";
+import BlogPost from "@/pages/BlogPost";
 import { SubscriptionWall } from "@/components/SubscriptionWall";
 
 type Gate = "loading" | "authed" | "nopassword" | "anon";
@@ -90,6 +92,8 @@ export default function App() {
           <Route path="/admin" element={<Admin />} />
           <Route path="/unassigned-jobs" element={<RequireAuth><UnassignedJobs /></RequireAuth>} />
           <Route path="/disconnected" element={<Disconnected />} />
+          <Route path="/blog" element={<BlogIndex />} />
+          <Route path="/blog/:slug" element={<BlogPost />} />
         </Routes>
       </HashRouter>
       {subscriptionRequired && <SubscriptionWall />}
